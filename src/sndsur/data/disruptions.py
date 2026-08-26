@@ -245,9 +245,9 @@ class DisruptionSpec:
 
     kinds: tuple[str, ...] = DISRUPTION_TYPES
     n_points: tuple[int, int] = (1, 1)
-    start: tuple[int, int] = (2, 10)
-    duration: tuple[int, int] = (2, 14)
-    severity: tuple[float, float] = (0.35, 1.0)
+    start: tuple[int, int] = (2, 8)
+    duration: tuple[int, int] = (4, 18)
+    severity: tuple[float, float] = (0.40, 1.0)
     lead_severity: tuple[float, float] = (0.5, 3.0)
     demand_severity: tuple[float, float] = (0.4, 2.0)
     upstream_bias: float = 0.6

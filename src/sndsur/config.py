@@ -48,10 +48,10 @@ class NetworkGenConfig:
     max_suppliers_per_group: int = 3
     preferential_exponent: float = 1.0
     lead_time_same_region: tuple[int, int] = (1, 2)
-    lead_time_cross_region: tuple[int, int] = (2, 5)
-    capacity_slack: tuple[float, float] = (0.10, 0.60)
-    base_stock_periods: tuple[float, float] = (0.0, 2.0)
-    input_cover_periods: tuple[float, float] = (0.5, 2.5)
+    lead_time_cross_region: tuple[int, int] = (2, 4)
+    capacity_slack: tuple[float, float] = (0.08, 0.45)
+    base_stock_periods: tuple[float, float] = (0.0, 1.2)
+    input_cover_periods: tuple[float, float] = (0.3, 1.8)
     bom_coeff: tuple[float, float] = (0.8, 1.6)
     demand_mean: tuple[float, float] = (8.0, 20.0)
     demand_cv: float = 0.20
@@ -72,9 +72,9 @@ class DisruptionGenConfig:
         "regional_event",
     )
     n_points: tuple[int, int] = (1, 1)
-    start: tuple[int, int] = (2, 10)
-    duration: tuple[int, int] = (2, 14)
-    severity: tuple[float, float] = (0.35, 1.0)
+    start: tuple[int, int] = (2, 8)
+    duration: tuple[int, int] = (4, 18)
+    severity: tuple[float, float] = (0.40, 1.0)
     lead_severity: tuple[float, float] = (0.5, 3.0)
     demand_severity: tuple[float, float] = (0.4, 2.0)
     upstream_bias: float = 0.6
@@ -90,8 +90,8 @@ class DisruptionGenConfig:
 class SimulationConfig:
     """Simulator horizon and policy. Mirrors :class:`sndsur.sim.simulator.SimConfig`."""
 
-    warmup: int = 12
-    horizon: int = 36
+    warmup: int = 22
+    horizon: int = 30
     backlog: bool = True
     backlog_cap_periods: float = 6.0
     allow_resourcing: bool = False
@@ -112,7 +112,7 @@ class DatasetConfig:
     n_train_networks: int = 12
     n_shift_networks: int = 6
     n_large_networks: int = 4
-    scenarios_per_train_network: int = 260
+    scenarios_per_train_network: int = 300
     scenarios_per_eval_network: int = 70
     val_fraction: float = 0.12
     test_id_fraction: float = 0.12

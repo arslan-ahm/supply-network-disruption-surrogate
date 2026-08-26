@@ -358,10 +358,10 @@ class NetworkSpec:
     max_suppliers_per_group: int = 3
     preferential_exponent: float = 1.0
     lead_time_same_region: tuple[int, int] = (1, 2)
-    lead_time_cross_region: tuple[int, int] = (2, 5)
-    capacity_slack: tuple[float, float] = (0.10, 0.60)
-    base_stock_periods: tuple[float, float] = (0.0, 2.0)
-    input_cover_periods: tuple[float, float] = (0.5, 2.5)
+    lead_time_cross_region: tuple[int, int] = (2, 4)
+    capacity_slack: tuple[float, float] = (0.08, 0.45)
+    base_stock_periods: tuple[float, float] = (0.0, 1.2)
+    input_cover_periods: tuple[float, float] = (0.3, 1.8)
     bom_coeff: tuple[float, float] = (0.8, 1.6)
     demand_mean: tuple[float, float] = (8.0, 20.0)
     demand_cv: float = 0.20

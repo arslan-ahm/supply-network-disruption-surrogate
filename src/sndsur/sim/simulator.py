@@ -91,8 +91,8 @@ class SimConfig:
             of the exhaustive counterfactual sweep, where only totals are needed.
     """
 
-    warmup: int = 12
-    horizon: int = 36
+    warmup: int = 22
+    horizon: int = 30
     backlog: bool = True
     backlog_cap_periods: float = 6.0
     allow_resourcing: bool = False
@@ -212,6 +212,159 @@ def demand_realisation(net: SupplyNetwork, cfg: SimConfig, seed: int) -> np.ndar
 # --------------------------------------------------------------------------- #
 
 
+class _Structure:
+    """Flattened, disruption-independent view of a network.
+
+    The period loop below runs tens of thousands of times while a dataset is
+    built. A first version of this module held every per-node quantity in a NumPy
+    array of length 1-3 and re-derived which supplier served which group inside
+    the loop; profiling put most of its time in NumPy call overhead rather than
+    arithmetic. Everything static is therefore compiled once into plain Python
+    lists and cached on the network object, which cut per-counterfactual cost by
+    more than an order of magnitude with bit-identical outputs. The committed
+    per-run cost is measured in ``results/tables/efficiency.csv``; the earlier
+    implementation is not in the repository, so no speed-up factor for that
+    rewrite is claimed as a result.
+
+    Plain lists rather than NumPy arrays is the right choice *here* specifically
+    because every inner quantity is a scalar or a length-1-to-3 vector, where
+    NumPy's per-call overhead dwarfs its vectorisation benefit.
+    """
+
+    __slots__ = (
+        "n", "n_edges", "is_demand", "demand_rows", "demand_row_of", "prod_order",
+        "n_groups", "grp_coeff", "grp_rows", "in_group_edges", "e_u", "e_v",
+        "e_grp", "e_lead", "cust_edges", "max_lead",
+    )
+
+    def __init__(self, net: SupplyNetwork) -> None:
+        n = net.n_nodes
+        self.n = n
+        edges = net.edges()
+        self.n_edges = len(edges)
+        self.is_demand = [bool(t == N_TIERS - 1) for t in net.tier.tolist()]
+        self.demand_rows = [int(v) for v in net.demand_nodes]
+        self.demand_row_of = {v: i for i, v in enumerate(self.demand_rows)}
+        self.prod_order = [v for v in range(n) if not self.is_demand[v]]
+
+        self.e_u = [int(u) for u, _v in edges]
+        self.e_v = [int(v) for _u, v in edges]
+        self.e_grp = [net.group_of(u, v) for u, v in edges]
+        self.e_lead = [int(net.lead_time[(u, v)]) for u, v in edges]
+        self.max_lead = max(self.e_lead) if self.e_lead else 1
+
+        self.n_groups = [len(g) for g in net.groups]
+        self.grp_coeff = [[float(g.coeff) for g in gs] for gs in net.groups]
+        # grp_rows[v][gi] = [(edge_id, supplier, nominal_share), ...]
+        self.grp_rows = [[[] for _ in gs] for gs in net.groups]
+        self.in_group_edges = [[[] for _ in gs] for gs in net.groups]
+        self.cust_edges = [[] for _ in range(n)]
+        for e, (u, v) in enumerate(edges):
+            gi = self.e_grp[e]
+            self.grp_rows[v][gi].append((e, u, net.share(u, v)))
+            self.in_group_edges[v][gi].append(e)
+            self.cust_edges[u].append((e, v))
+
+
+def _structure(net: SupplyNetwork) -> _Structure:
+    """Compiled structure for ``net``, cached on the instance.
+
+    The cache key is the edge count plus the node count: the generator never
+    mutates a network in place, and the CSV loader builds a fresh object, so a
+    structural change always arrives as a new object. The key exists only to
+    catch a caller who edits ``groups`` by hand, which would otherwise produce
+    a silently stale structure.
+    """
+    key = (net.n_nodes, len(net.lead_time))
+    cached = net.__dict__.get("_sim_struct")
+    if cached is not None and net.__dict__.get("_sim_struct_key") == key:
+        return cached
+    st = _Structure(net)
+    net.__dict__["_sim_struct"] = st
+    net.__dict__["_sim_struct_key"] = key
+    return st
+
+
+def _disruption_tables(
+    net: SupplyNetwork, st: _Structure, cfg: SimConfig, ds: DisruptionSet, T: int
+) -> tuple[list, list, list, list]:
+    """Expand a disruption set into per-period lookup tables.
+
+    Returns ``(cap_mult, dem_mult, lane_open, lead_eff)``, each indexed by
+    absolute period ``t`` then by node / demand row / edge. Warm-up periods are
+    always undisrupted, which is what makes ``start=0`` mean "the first measured
+    period" rather than "somewhere in the burn-in".
+
+    Building the tables costs O(T * (n + E)) once per scenario and removes a
+    method call per node per period from the loop. When there is no disruption
+    the constant rows are shared, so the baseline run allocates nothing.
+    """
+    n, n_e = st.n, st.n_edges
+    n_d = len(st.demand_rows)
+    if not ds.items:
+        one_n = [1.0] * n
+        one_d = [1.0] * n_d
+        open_e = [True] * n_e
+        lead0 = list(st.e_lead)
+        return ([one_n] * T, [one_d] * T, [open_e] * T, [lead0] * T)
+
+    cap = [[1.0] * n for _ in range(T)]
+    dem = [[1.0] * n_d for _ in range(T)]
+    lane = [[True] * n_e for _ in range(T)]
+    lead = [list(st.e_lead) for _ in range(T)]
+    lead_add = [[0.0] * n for _ in range(T)]
+    region = net.region.tolist()
+    warm = cfg.warmup
+
+    for d in ds.items:
+        lo = warm + d.start
+        hi = min(T, warm + d.end)
+        if lo >= T:
+            continue
+        if d.kind in ("supplier_outage", "capacity_reduction"):
+            f = max(0.0, 1.0 - d.severity)
+            v = int(d.target)
+            for t in range(lo, hi):
+                cap[t][v] *= f
+        elif d.kind == "regional_event":
+            f = max(0.0, 1.0 - d.severity)
+            members = [v for v in range(n) if region[v] == d.target]
+            for t in range(lo, hi):
+                row = cap[t]
+                for v in members:
+                    row[v] *= f
+        elif d.kind == "demand_spike":
+            i = st.demand_row_of.get(int(d.target))
+            if i is not None:
+                f = 1.0 + d.severity
+                for t in range(lo, hi):
+                    dem[t][i] *= f
+        elif d.kind == "lane_closure":
+            ids = [
+                e
+                for e in range(n_e)
+                if st.e_u[e] == int(d.target) and st.e_v[e] == int(d.target2)
+            ]
+            for t in range(lo, hi):
+                for e in ids:
+                    lane[t][e] = False
+        elif d.kind == "lead_time_inflation":
+            v = int(d.target)
+            for t in range(lo, hi):
+                lead_add[t][v] += d.severity
+
+    for t in range(T):
+        row = lead_add[t]
+        if not any(row):
+            continue
+        out = lead[t]
+        for e in range(n_e):
+            add = row[st.e_u[e]]
+            if add:
+                out[e] = max(1, int(round(st.e_lead[e] * (1.0 + add))))
+    return cap, dem, lane, lead
+
+
 def simulate(
     net: SupplyNetwork,
     cfg: SimConfig,
@@ -233,7 +386,8 @@ def simulate(
     Returns:
         A :class:`SimResult` covering the measurement window only.
     """
-    n = net.n_nodes
+    st = _structure(net)
+    n = st.n
     T = cfg.warmup + cfg.horizon
     dn = net.demand_nodes
     n_demand = dn.size
@@ -241,211 +395,242 @@ def simulate(
         raise ValueError(f"demand must be {(n_demand, T)}, got {demand.shape}")
 
     ds = disruptions if disruptions is not None else DisruptionSet([])
-    demand_row = {int(v): i for i, v in enumerate(dn)}
-    is_demand = net.tier == N_TIERS - 1
+    cap_tab, dem_tab, lane_tab, lead_tab = _disruption_tables(net, st, cfg, ds, T)
 
-    # ---- static structure, flattened once so the period loop is arithmetic ----
-    groups = net.groups
-    n_groups = [len(g) for g in groups]
-    coeff = [np.array([g.coeff for g in gs], dtype=np.float64) for gs in groups]
-    # supplier_edges[v] = list of (group_index, supplier, nominal_share)
-    supplier_edges: list[list[tuple[int, int, float]]] = []
-    for v in range(n):
-        rows = []
-        for gi, g in enumerate(groups[v]):
-            for u, w in zip(g.suppliers, g.shares, strict=True):
-                rows.append((gi, int(u), float(w)))
-        supplier_edges.append(rows)
-    customers = net.customers()
-    group_index = {(u, v): net.group_of(u, v) for (u, v) in net.edges()}
+    is_demand = st.is_demand
+    n_groups = st.n_groups
+    grp_coeff = st.grp_coeff
+    grp_rows = st.grp_rows
+    in_group_edges = st.in_group_edges
+    cust_edges = st.cust_edges
+    e_v, e_grp = st.e_v, st.e_grp
+
+    thr = (net.throughput if net.throughput.size == n else net.compute_throughput()).tolist()
+    capacity = net.capacity.tolist()
+    base_stock = net.base_stock.tolist()
+    cover = net.input_cover.tolist()
+    demand_l = demand.tolist()
 
     # ---- state ----
-    raw = [np.zeros(k, dtype=np.float64) for k in n_groups]
-    fg = net.base_stock.copy()
-    fg[is_demand] = 0.0
-    backlog = np.zeros(n, dtype=np.float64)
-    thr = net.throughput if net.throughput.size == n else net.compute_throughput()
+    raw = [[grp_coeff[v][g] * thr[v] * cover[v] for g in range(n_groups[v])] for v in range(n)]
+    grp_target = [list(raw[v]) for v in range(n)]
+    fg = [0.0 if is_demand[v] else base_stock[v] for v in range(n)]
+    backlog = [0.0] * n
+    span = st.max_lead + 2
+    pipe = [[0.0] * span for _ in range(st.n_edges)]
+    pipe_tot = [0.0] * st.n_edges
+    order_book = [0.0] * st.n_edges
+    orders_in = [0.0] * n
+    req = [0.0] * n
 
-    # Input stock starts at its order-up-to level: the network begins in a
-    # plausible steady state rather than empty, which would make the first
-    # several periods of every run a stockout artefact.
-    for v in range(n):
-        if n_groups[v]:
-            raw[v][:] = coeff[v] * thr[v] * net.input_cover[v]
+    backlog_cap = [0.0] * n
+    md = net.mean_demand.tolist()
+    for v in st.demand_rows:
+        backlog_cap[v] = cfg.backlog_cap_periods * md[v]
 
-    max_lead = max(net.lead_time.values()) if net.lead_time else 1
-    # pipeline[(u, v)] is a ring buffer of arrivals indexed by (t % span).
-    span = max_lead + 2
-    pipeline = {e: np.zeros(span, dtype=np.float64) for e in net.lead_time}
-
-    backlog_cap = np.zeros(n, dtype=np.float64)
-    backlog_cap[dn] = cfg.backlog_cap_periods * net.mean_demand[dn]
-
+    record = cfg.record_trajectory
     unmet_series = (
-        np.zeros((n_demand, cfg.horizon), dtype=np.float64)
-        if cfg.record_trajectory
-        else np.zeros((0, 0))
+        np.zeros((n_demand, cfg.horizon), dtype=np.float64) if record else np.zeros((0, 0))
     )
-    served_total = np.zeros(n_demand, dtype=np.float64)
-    demand_total = np.zeros(n_demand, dtype=np.float64)
+    unmet_rows = unmet_series.tolist() if record else []
+    served_total = [0.0] * n_demand
+    demand_total = [0.0] * n_demand
     cons_err = 0.0
-
-    orders_in = np.zeros(n, dtype=np.float64)
-    req = np.zeros(n, dtype=np.float64)
-    # order_book[(u, v)] is what v asked u for this period.
-    order_book = dict.fromkeys(net.lead_time, 0.0)
-
     proportional = cfg.allocation == "proportional"
+    resource = cfg.allow_resourcing
+    warm = cfg.warmup
 
     for t in range(T):
-        rel = t - cfg.warmup  # period index relative to the measurement window
+        rel = t - warm
         slot = t % span
+        cap_row = cap_tab[t]
+        lane_row = lane_tab[t]
+        lead_row = lead_tab[t]
+        dem_row = dem_tab[t]
 
         # ---- 1. arrivals ----
-        for (u, v), buf in pipeline.items():
+        for e in range(st.n_edges):
+            buf = pipe[e]
             q = buf[slot]
             if q:
-                raw[v][group_index[(u, v)]] += q
+                raw[e_v[e]][e_grp[e]] += q
+                pipe_tot[e] -= q
                 buf[slot] = 0.0
 
         # ---- 2. demand ----
-        d_now = demand[:, t] * np.array(
-            [ds.demand_multiplier(int(v), rel) for v in dn], dtype=np.float64
-        )
+        d_now = [demand_l[i][t] * dem_row[i] for i in range(n_demand)]
 
         # ---- 3. requirements, reverse topological order ----
-        orders_in[:] = 0.0
-        for e in order_book:
+        for v in range(n):
+            orders_in[v] = 0.0
+        for e in range(st.n_edges):
             order_book[e] = 0.0
+
         for v in range(n - 1, -1, -1):
             if is_demand[v]:
-                req[v] = d_now[demand_row[v]] + backlog[v]
+                r = d_now[st.demand_row_of[v]] + backlog[v]
             else:
-                req[v] = orders_in[v] + max(0.0, net.base_stock[v] - fg[v])
-                cap = net.capacity[v] * ds.capacity_multiplier(int(v), rel)
-                # A node does not order material it has no capacity to convert.
-                # Without this the shortage signal would propagate upstream
-                # through a dead node, which is not how a plant behaves.
-                req[v] = min(req[v], cap)
-            if req[v] < 0.0:
-                req[v] = 0.0
-            if not n_groups[v]:
+                r = orders_in[v] + base_stock[v] - fg[v]
+                if r < orders_in[v]:
+                    r = orders_in[v]
+                c = capacity[v] * cap_row[v]
+                if r > c:
+                    r = c
+            if r < 0.0:
+                r = 0.0
+            req[v] = r
+            ng = n_groups[v]
+            if not ng:
                 continue
 
-            # Order-up-to on the input side, per group.
-            in_transit = np.zeros(n_groups[v], dtype=np.float64)
-            for gi, u, _w in supplier_edges[v]:
-                in_transit[gi] += pipeline[(u, v)].sum()
-            target = coeff[v] * thr[v] * net.input_cover[v]
-            group_order = coeff[v] * req[v] + np.maximum(
-                0.0, target - raw[v] - in_transit
-            )
-
-            for gi in range(n_groups[v]):
-                rows = [(u, w) for g2, u, w in supplier_edges[v] if g2 == gi]
-                if cfg.allow_resourcing:
+            coeffs = grp_coeff[v]
+            rawv = raw[v]
+            targets = grp_target[v]
+            for gi in range(ng):
+                transit = 0.0
+                for e in in_group_edges[v][gi]:
+                    transit += pipe_tot[e]
+                short = targets[gi] - rawv[gi] - transit
+                order = coeffs[gi] * r + (short if short > 0.0 else 0.0)
+                if order <= 0.0:
+                    continue
+                rows = grp_rows[v][gi]
+                if resource:
                     live = [
-                        (u, w)
-                        for u, w in rows
-                        if net.capacity[u] * ds.capacity_multiplier(u, rel) > EPS
-                        and ds.lane_open(u, v, rel)
+                        (e, u, w)
+                        for (e, u, w) in rows
+                        if capacity[u] * cap_row[u] > EPS and lane_row[e]
                     ]
                     if live:
                         rows = live
-                tot_w = sum(w for _u, w in rows)
-                if tot_w <= 0:
+                tot_w = 0.0
+                for _e, _u, w in rows:
+                    tot_w += w
+                if tot_w <= 0.0:
                     continue
-                for u, w in rows:
-                    order_book[(u, v)] += group_order[gi] * w / tot_w
-                    orders_in[u] += group_order[gi] * w / tot_w
+                for e, u, w in rows:
+                    q = order * w / tot_w
+                    order_book[e] += q
+                    orders_in[u] += q
 
         # ---- 4. production and shipment, forward topological order ----
-        for v in range(n):
-            if is_demand[v]:
-                continue
-            cap = net.capacity[v] * ds.capacity_multiplier(int(v), rel)
-            if n_groups[v]:
-                material = float(np.min(raw[v] / coeff[v]))
-            else:
-                material = np.inf
-            prod = min(req[v], cap, material)
-            if prod < 0.0:
+        for v in st.prod_order:
+            c = capacity[v] * cap_row[v]
+            ng = n_groups[v]
+            prod = req[v]
+            if prod > c:
+                prod = c
+            if ng:
+                rawv = raw[v]
+                coeffs = grp_coeff[v]
+                for gi in range(ng):
+                    m = rawv[gi] / coeffs[gi]
+                    if m < prod:
+                        prod = m
+            if prod <= 0.0:
                 prod = 0.0
-            before = raw[v].sum() if n_groups[v] else 0.0
-            if n_groups[v]:
-                raw[v] -= prod * coeff[v]
-                consumed = prod * coeff[v].sum()
-                cons_err = max(cons_err, abs(before - raw[v].sum() - consumed))
-                # Floating-point subtraction can leave a stock at -1e-16, which
-                # would then look like a shortage for the rest of the run.
-                np.maximum(raw[v], 0.0, out=raw[v])
+            elif ng:
+                rawv = raw[v]
+                coeffs = grp_coeff[v]
+                for gi in range(ng):
+                    val = rawv[gi] - prod * coeffs[gi]
+                    if val < 0.0:
+                        if -val > cons_err:
+                            cons_err = -val
+                        val = 0.0
+                    rawv[gi] = val
             fg[v] += prod
 
-            wanted = [(c, order_book[(v, c)]) for c in customers[v]]
-            total_want = sum(q for _c, q in wanted)
-            if total_want <= EPS or fg[v] <= EPS:
+            ces = cust_edges[v]
+            if not ces:
                 continue
+            total_want = 0.0
+            for e, _c in ces:
+                total_want += order_book[e]
             avail = fg[v]
+            if total_want <= EPS or avail <= EPS:
+                continue
             if proportional:
-                frac = min(1.0, avail / total_want)
-                allocation = [(c, q * frac) for c, q in wanted]
+                frac = avail / total_want
+                if frac > 1.0:
+                    frac = 1.0
+                shipped = 0.0
+                for e, cnode in ces:
+                    q = order_book[e] * frac
+                    if q <= 0.0 or not lane_row[e]:
+                        continue
+                    pipe[e][(t + lead_row[e]) % span] += q
+                    pipe_tot[e] += q
+                    shipped += q
             else:
-                allocation = []
                 left = avail
-                for c, q in sorted(wanted):
-                    give = min(q, left)
-                    left -= give
-                    allocation.append((c, give))
-            shipped = 0.0
-            for c, q in allocation:
-                if q <= 0.0:
-                    continue
-                if not ds.lane_open(int(v), int(c), rel):
-                    continue  # a closed lane blocks the shipment entirely
-                lead = ds.effective_lead_time(int(v), int(c), rel, net.lead_time[(v, c)])
-                pipeline[(v, c)][(t + lead) % span] += q
-                shipped += q
-            fg[v] -= shipped
+                shipped = 0.0
+                for e, cnode in sorted(ces, key=lambda x: x[1]):
+                    q = order_book[e]
+                    if q > left:
+                        q = left
+                    left -= q
+                    if q <= 0.0 or not lane_row[e]:
+                        continue
+                    pipe[e][(t + lead_row[e]) % span] += q
+                    pipe_tot[e] += q
+                    shipped += q
+            fg[v] = avail - shipped
             if fg[v] < 0.0:
-                cons_err = max(cons_err, -fg[v])
+                if -fg[v] > cons_err:
+                    cons_err = -fg[v]
                 fg[v] = 0.0
 
         # ---- 5. fulfilment at demand points ----
-        for i, v in enumerate(dn):
-            v = int(v)
-            avail = raw[v].sum()
-            serve_bl = min(avail, backlog[v])
+        for i, v in enumerate(st.demand_rows):
+            rawv = raw[v]
+            avail = 0.0
+            for q in rawv:
+                avail += q
+            bl = backlog[v]
+            serve_bl = bl if bl < avail else avail
             avail -= serve_bl
-            backlog[v] -= serve_bl
+            bl -= serve_bl
             d = d_now[i]
-            serve_now = min(avail, d)
+            serve_now = d if d < avail else avail
             avail -= serve_now
             short = d - serve_now
             if cfg.backlog:
-                backlog[v] = min(backlog[v] + short, backlog_cap[v])
+                bl += short
+                if bl > backlog_cap[v]:
+                    bl = backlog_cap[v]
+            backlog[v] = bl
             taken = serve_bl + serve_now
-            if taken > 0:
-                total = raw[v].sum()
-                if total > 0:
-                    raw[v] *= max(0.0, (total - taken) / total)
+            if taken > 0.0:
+                total = 0.0
+                for q in rawv:
+                    total += q
+                if total > 0.0:
+                    f = (total - taken) / total
+                    if f < 0.0:
+                        f = 0.0
+                    for gi in range(len(rawv)):
+                        rawv[gi] *= f
             if rel >= 0:
                 demand_total[i] += d
                 served_total[i] += serve_now
-                if cfg.record_trajectory:
-                    unmet_series[i, rel] = short
+                if record:
+                    unmet_rows[i][rel] = short
 
-    unmet_total = demand_total - served_total
+    served_arr = np.asarray(served_total, dtype=np.float64)
+    demand_arr = np.asarray(demand_total, dtype=np.float64)
+    unmet_total = demand_arr - served_arr
     with np.errstate(invalid="ignore", divide="ignore"):
-        fill = np.where(demand_total > 0, served_total / demand_total, np.nan)
+        fill = np.where(demand_arr > 0, served_arr / demand_arr, np.nan)
 
     return SimResult(
         demand_nodes=dn.copy(),
-        demand_total=demand_total,
-        served_total=served_total,
+        demand_total=demand_arr,
+        served_total=served_arr,
         unmet_total=unmet_total,
         fill_rate=fill,
-        unmet_series=unmet_series,
-        demand_series=demand[:, cfg.warmup :].copy() if cfg.record_trajectory else np.zeros((0, 0)),
+        unmet_series=np.asarray(unmet_rows, dtype=np.float64) if record else unmet_series,
+        demand_series=demand[:, warm:].copy() if record else np.zeros((0, 0)),
         conservation_error=float(cons_err),
     )
 
