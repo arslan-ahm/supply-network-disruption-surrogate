@@ -1,0 +1,8 @@
+# The temporal-modelling ablation: a single linear projection to all trajectory
+# periods instead of a GRU rolled over them.
+_base_: base.yaml
+run:
+  name: linear_traj
+model:
+  temporal_decoder: false
+  ensemble: 1

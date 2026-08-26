@@ -1,0 +1,9 @@
+# The ablation that isolates the graph. Identical features, identical loss,
+# identical training loop, identical parameter budget (within ~2.4%) - the only
+# difference is that no node ever sees a neighbour.
+_base_: base.yaml
+run:
+  name: no_message_passing
+model:
+  layers: 0
+  ensemble: 1

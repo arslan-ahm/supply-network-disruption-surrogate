@@ -53,7 +53,6 @@ from sndsur.engine.trainer import (
     ensemble_component_sigmas,
     predict,
     predict_ensemble,
-    train_ensemble,
     train_surrogate,
 )
 from sndsur.metrics import calibration as CAL
@@ -67,6 +66,7 @@ from sndsur.models.baselines import (
     rows_from_split,
 )
 from sndsur.utils.bench import benchmark, break_even_scenarios, budget_curve
+from sndsur.utils.checkpoint import train_or_load_ensemble
 from sndsur.utils.logging import RunDir, get_logger, write_csv
 from sndsur.utils.seed import limit_threads, seed_everything
 
@@ -124,6 +124,30 @@ def _batches(ds: ScenarioDataset, cfg: Config) -> dict[str, list]:
     }
 
 
+def _fit_heuristic_scale(train_scores: np.ndarray, train_truth: np.ndarray) -> tuple[float, float]:
+    """Least-squares affine map from heuristic score to service-loss units.
+
+    The composite heuristic is a weighted sum of standardised topology signals,
+    so its raw scale is arbitrary and its unscaled MAE is meaningless — the first
+    run of this comparison reported the heuristic at MAE 2.4 against a target
+    bounded by the number of demand points, which says nothing about the
+    heuristic and everything about its units.
+
+    The scale is fitted on the **training** split only and applied unchanged
+    everywhere else, exactly like the learned models' parameters. Two numbers is
+    the least the heuristic can be given to make its error interpretable, and
+    fitting more than that would quietly turn it into a linear model — which is
+    already covered by the ridge variant of the tabular baseline.
+    """
+    x = np.asarray(train_scores, dtype=np.float64)
+    y = np.asarray(train_truth, dtype=np.float64)
+    m = np.isfinite(x) & np.isfinite(y)
+    if m.sum() < 2 or np.allclose(x[m], x[m][0]):
+        return (0.0, float(np.nanmean(y)) if m.any() else 0.0)
+    a, b = np.polyfit(x[m], y[m], 1)
+    return (float(a), float(b))
+
+
 def _heuristic_rows(ds: ScenarioDataset, split: str) -> np.ndarray:
     """Per-row heuristic score, aligned with :func:`rows_from_split`.
 
@@ -179,9 +203,10 @@ def run_comparison(cfg: Config, rebuild: bool = False) -> dict[str, pd.DataFrame
     cfg.to_yaml(run.path / "config.yaml")
 
     LOG.info("training surrogate ensemble (%d members)", cfg.model.ensemble)
-    t0 = time.perf_counter()
-    models, records = train_ensemble(cfg, ds, N_NODE_FEATURES, N_EDGE_FEATURES, run=run)
-    train_seconds = time.perf_counter() - t0
+    models, records = train_or_load_ensemble(
+        cfg, ds, N_NODE_FEATURES, N_EDGE_FEATURES, run=run
+    )
+    train_seconds = float(np.sum([r["train_seconds"] for r in records]))
     LOG.info("ensemble trained in %.1fs", train_seconds)
 
     train_rows = rows_from_split(ds, "train")
@@ -189,6 +214,8 @@ def run_comparison(cfg: Config, rebuild: bool = False) -> dict[str, pd.DataFrame
     tab_gbt = TabularRiskModel("gbt", cfg.run.seed).fit(train_rows.x, train_rows.y)
     tab_ridge = TabularRiskModel("ridge", cfg.run.seed).fit(train_rows.x, train_rows.y)
     retrieval = ScenarioRetrieval(k=8).fit(train_rows.x, train_rows.y)
+    heur_a, heur_b = _fit_heuristic_scale(_heuristic_rows(ds, "train"), train_rows.y)
+    LOG.info("heuristic affine calibration fitted on train: %.5f * s + %.5f", heur_a, heur_b)
 
     LOG.info("training no-message-passing MLP ablation")
     cfg_nograph = replace(cfg, model=replace(cfg.model, layers=0, ensemble=1))
@@ -223,7 +250,9 @@ def run_comparison(cfg: Config, rebuild: bool = False) -> dict[str, pd.DataFrame
             "tabular_gbt": tab_gbt.predict(rows.x),
             "tabular_ridge": tab_ridge.predict(rows.x),
             "retrieval_knn": retrieval.predict(rows.x),
-            "topology_heuristic": _heuristic_rows(ds, split),
+            "topology_heuristic": np.clip(
+                heur_a * _heuristic_rows(ds, split) + heur_b, 0.0, None
+            ),
         }
         preds_by_split[split] = preds
         truth = rows.y
@@ -519,7 +548,7 @@ def run_criticality(cfg: Config) -> dict[str, pd.DataFrame]:
     sim = _sim_config(cfg)
     train_rows = rows_from_split(ds, "train")
     tab_gbt = TabularRiskModel("gbt", cfg.run.seed).fit(train_rows.x, train_rows.y)
-    models, _ = train_ensemble(cfg, ds, N_NODE_FEATURES, N_EDGE_FEATURES)
+    models, _ = train_or_load_ensemble(cfg, ds, N_NODE_FEATURES, N_EDGE_FEATURES)
     heur = TopologyHeuristic()
 
     shift_net_ids = sorted({s.net_id for s in ds.splits["shift_topo"]})
@@ -686,10 +715,12 @@ def run_efficiency(cfg: Config) -> pd.DataFrame:
     sim = _sim_config(cfg)
     rows: list[dict] = []
 
-    t0 = time.perf_counter()
-    models, records = train_ensemble(cfg, ds, N_NODE_FEATURES, N_EDGE_FEATURES)
-    ensemble_train_seconds = time.perf_counter() - t0
+    models, records = train_or_load_ensemble(cfg, ds, N_NODE_FEATURES, N_EDGE_FEATURES)
+    # Training seconds come from the records, never from the wall-clock of this
+    # call: a cache hit would otherwise be reported as a near-zero training cost
+    # and inflate the break-even number into nonsense.
     single_train_seconds = float(np.mean([r["train_seconds"] for r in records]))
+    ensemble_train_seconds = float(np.sum([r["train_seconds"] for r in records]))
 
     dataset_seconds = float("nan")
     dpath = TABLES / "dataset.csv"

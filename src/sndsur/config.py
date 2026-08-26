@@ -79,9 +79,15 @@ class DisruptionGenConfig:
     demand_severity: tuple[float, float] = (0.4, 2.0)
     upstream_bias: float = 0.6
     #: Mechanism withheld from training and used for the unseen-type split.
-    #: ``lane_closure`` is chosen because it is the only edge-scoped mechanism,
-    #: so holding it out tests whether edge features were learned or memorised.
-    holdout_kind: str = "lane_closure"
+    #: ``demand_spike`` is chosen for two reasons. It is the only mechanism that
+    #: propagates *upstream* (a customer wanting more, rather than a supplier
+    #: producing less), so holding it out tests the bidirectional message-passing
+    #: design directly. And it has enough signal to make the split informative:
+    #: measured over 120 sampled scenarios per kind, demand spikes leave 55% of
+    #: scenarios with no impact, against 81% for lane closures and 91% for
+    #: lead-time inflation, so a lane-closure holdout would mostly be testing
+    #: whether the model can predict zero.
+    holdout_kind: str = "demand_spike"
     #: Simultaneous disruptions in the multi-point shift split.
     multi_points: tuple[int, int] = (2, 3)
 
@@ -158,7 +164,7 @@ class TrainConfig:
 
     lr: float = 3e-3
     weight_decay: float = 1e-4
-    epochs: int = 40
+    epochs: int = 30
     batch_graphs: int = 24
     grad_clip: float = 1.0
     scheduler: str = "cosine"

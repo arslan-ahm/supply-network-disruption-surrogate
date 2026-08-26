@@ -1,0 +1,8 @@
+# One directed message function instead of two. Expected to hurt demand_spike
+# scenarios specifically, since a demand spike only propagates upstream.
+_base_: base.yaml
+run:
+  name: unidirectional
+model:
+  bidirectional: false
+  ensemble: 1

@@ -1,0 +1,36 @@
+# Tiny end-to-end configuration: the whole pipeline in about a minute.
+# Used by `make smoke` and by tests/test_end_to_end.py. Every stage runs for
+# real - the point is to catch an empty results table, which the reference
+# project shipped once.
+_base_: base.yaml
+run:
+  name: smoke
+netgen:
+  n_per_tier: [6, 5, 4, 3, 4]
+  n_regions: 2
+sim:
+  warmup: 12
+  horizon: 14
+dataset:
+  n_train_networks: 3
+  n_shift_networks: 2
+  n_large_networks: 1
+  scenarios_per_train_network: 30
+  scenarios_per_eval_network: 10
+  traj_periods: 10
+model:
+  hidden: 24
+  layers: 2
+  ensemble: 2
+  no_graph_blocks: 2
+  no_graph_width: 64
+train:
+  epochs: 4
+  batch_graphs: 8
+  patience: 0
+eval:
+  bootstrap: 200
+  recall_k: [3, 5]
+  n_criticality_networks: 1
+  bench_warmup: 8
+  bench_repeats: 8

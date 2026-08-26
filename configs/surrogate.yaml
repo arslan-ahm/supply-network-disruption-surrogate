@@ -1,0 +1,4 @@
+# The headline model: full graph surrogate, deep ensemble, both uncertainty heads.
+_base_: base.yaml
+run:
+  name: surrogate

@@ -1,0 +1,9 @@
+# Optimistic sourcing policy: a node re-normalises its orders over suppliers with
+# positive capacity, so qualified alternates are actually used. The difference
+# from base.yaml is the value of having alternates, and it changes the ground
+# truth - so this is a separate dataset, not a separate model.
+_base_: base.yaml
+run:
+  name: resourcing
+sim:
+  allow_resourcing: true

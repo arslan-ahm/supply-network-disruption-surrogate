@@ -1,0 +1,8 @@
+# Messages are not conditioned on lead time, BOM coefficient or sourcing share.
+# Two suppliers of the same customer become indistinguishable to the model.
+_base_: base.yaml
+run:
+  name: no_edge_features
+model:
+  use_edge_features: false
+  ensemble: 1

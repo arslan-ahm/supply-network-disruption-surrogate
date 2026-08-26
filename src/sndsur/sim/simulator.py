@@ -416,7 +416,13 @@ def simulate(
     grp_target = [list(raw[v]) for v in range(n)]
     fg = [0.0 if is_demand[v] else base_stock[v] for v in range(n)]
     backlog = [0.0] * n
-    span = st.max_lead + 2
+    # The in-transit ring buffer must be long enough for the longest lead time
+    # that can actually occur, which is the *inflated* one, not the nominal one.
+    # Sizing it from st.max_lead made every lead_time_inflation disruption wrap
+    # around and land early: 120 of 120 sampled inflation scenarios produced
+    # exactly zero impact, which is how the bug was found. Tested by
+    # test_simulator.py::test_lead_time_inflation_delays_by_the_inflated_amount.
+    span = max(max(row) for row in lead_tab) + 2 if lead_tab else st.max_lead + 2
     pipe = [[0.0] * span for _ in range(st.n_edges)]
     pipe_tot = [0.0] * st.n_edges
     order_book = [0.0] * st.n_edges
