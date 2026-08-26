@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Environments
+.venv/
+venv/
+env/
+.env
+
+# Checkpoints and the generated scenario cache (regenerate with `make data`)
+checkpoints/*.pt
+checkpoints/*.pth
+!checkpoints/README.md
+data/scenarios/
+data/*.npz
+!data/README.md
+
+# results/ is committed on purpose: the tables, figures and per-scenario CSVs are
+# the evidence for every number in the docs, and they let a reader re-verify the
+# paired statistics without re-running the simulator or retraining anything.
+results/scratch/
+
+# OS
+.DS_Store
+Thumbs.db
