@@ -60,12 +60,17 @@ def scatter_max(src: Tensor, index: Tensor, n: int) -> Tensor:
     (Gilmer et al., 2017 discuss exactly this aggregator-expressivity trade).
 
     Empty groups return 0 rather than ``-inf``, for the same reason as above.
+
+    Implemented with ``scatter_reduce_`` rather than ``index_reduce_``: the latter
+    is still flagged beta and emits a warning on every call, and a library that
+    warns thousands of times per training run trains readers to ignore warnings.
     """
     out = src.new_zeros((n, src.shape[1]))
     if src.numel() == 0:
         return out
     out = out.fill_(float("-inf"))
-    out = out.index_reduce_(0, index, src, "amax", include_self=True)
+    idx = index.unsqueeze(1).expand(-1, src.shape[1])
+    out = out.scatter_reduce_(0, idx, src, reduce="amax", include_self=True)
     return torch.where(torch.isinf(out), torch.zeros_like(out), out)
 
 

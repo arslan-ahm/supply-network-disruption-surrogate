@@ -146,6 +146,10 @@ class ModelConfig:
     quantiles: tuple[float, ...] = (0.05, 0.5, 0.95)
     #: Members in the deep ensemble (Lakshminarayanan et al., 2017).
     ensemble: int = 5
+    #: Node-only trunk used when ``layers == 0``, sized so the no-message-passing
+    #: ablation has a comparable parameter budget rather than a smaller one.
+    no_graph_blocks: int = 5
+    no_graph_width: int = 256
 
 
 @dataclass

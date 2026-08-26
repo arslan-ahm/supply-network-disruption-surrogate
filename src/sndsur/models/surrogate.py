@@ -88,6 +88,9 @@ class SupplyGraphSurrogate(nn.Module):
         temporal_decoder: GRU trajectory decoder rather than a linear projection.
         heteroscedastic: Predict a log-variance for ``impact``.
         n_quantiles: Number of quantile outputs; 0 disables the head.
+        no_graph_blocks: Node-only trunk blocks used when ``layers == 0``.
+        no_graph_width: Hidden width of those blocks. Together these two are set
+            so the no-graph ablation matches the graph model's parameter count.
 
     The impact head ends in ``softplus`` because service-level loss is
     non-negative by construction. A linear head spent its early epochs learning
@@ -109,6 +112,8 @@ class SupplyGraphSurrogate(nn.Module):
         temporal_decoder: bool = True,
         heteroscedastic: bool = True,
         n_quantiles: int = 3,
+        no_graph_blocks: int = 5,
+        no_graph_width: int = 256,
     ) -> None:
         super().__init__()
         self.traj_periods = traj_periods
@@ -119,7 +124,6 @@ class SupplyGraphSurrogate(nn.Module):
         self.heteroscedastic = heteroscedastic
         self.n_quantiles = n_quantiles
 
-        eff_edge = edge_dim if self.use_edge_features else 0
         self.encoder = mlp([node_dim, hidden, hidden], dropout, out_act=True)
         self.edge_encoder = (
             mlp([edge_dim, hidden // 2, hidden // 2], dropout, out_act=True)
@@ -132,10 +136,17 @@ class SupplyGraphSurrogate(nn.Module):
             for _ in range(layers)
         )
         if layers == 0:
-            # Keep depth and parameter count comparable so the ablation isolates
-            # message passing rather than capacity. Without this the no-graph
-            # model is also a smaller model and the comparison confounds the two.
-            self.no_graph_trunk = mlp([hidden, hidden, hidden], dropout, out_act=True)
+            # Message passing is removed, but the parameters are not: the trunk
+            # is a stack of node-only blocks widened so the no-graph model has a
+            # comparable budget. The first version of this ablation simply
+            # dropped the processor and came out 3.6x smaller, which would have
+            # confounded "the graph helps" with "more parameters help". The
+            # committed widths land the two within a few per cent; both counts
+            # are printed in results/tables/ablations.csv so the reader can check.
+            blocks = []
+            for _ in range(max(1, no_graph_blocks)):
+                blocks.append(mlp([hidden, no_graph_width, hidden], dropout, out_act=True))
+            self.no_graph_trunk = nn.Sequential(*blocks)
         else:
             self.no_graph_trunk = None
 
@@ -167,7 +178,6 @@ class SupplyGraphSurrogate(nn.Module):
             self.traj_linear = nn.Sequential(
                 mlp([hidden, hidden], dropout, out_act=True), nn.Linear(hidden, traj_periods)
             )
-        eff_edge  # noqa: B018 - documented above; edge_hidden carries the real width
 
     # ------------------------------------------------------------------ #
 
@@ -263,4 +273,6 @@ def build_surrogate(cfg, node_dim: int, edge_dim: int, traj_periods: int) -> Sup
         temporal_decoder=m.temporal_decoder,
         heteroscedastic=m.heteroscedastic,
         n_quantiles=len(m.quantiles),
+        no_graph_blocks=m.no_graph_blocks,
+        no_graph_width=m.no_graph_width,
     )
