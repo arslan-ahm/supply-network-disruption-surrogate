@@ -314,7 +314,10 @@ def find_disagreements(
                     truth_b=tb,
                     winner="counterfactual" if tb > ta else ("feature" if ta > tb else "tie"),
                     margin=abs(tb - ta),
-                    explanation=f"node {a}: {explain_node(net, a)} | node {b}: {explain_node(net, b)}",
+                    explanation=(
+                        f"node {a}: {explain_node(net, a)} | "
+                        f"node {b}: {explain_node(net, b)}"
+                    ),
                 )
             )
     out.sort(key=lambda d: -d.margin)

@@ -157,11 +157,16 @@ class DisruptionSet:
         for d in self.items:
             if not d.active(rel):
                 continue
-            if d.kind in ("supplier_outage", "capacity_reduction") and d.target == node:
+            node_scoped = (
+                d.kind in ("supplier_outage", "capacity_reduction") and d.target == node
+            )
+            regional = (
+                d.kind == "regional_event"
+                and self.region is not None
+                and int(self.region[node]) == d.target
+            )
+            if node_scoped or regional:
                 m *= max(0.0, 1.0 - d.severity)
-            elif d.kind == "regional_event" and self.region is not None:
-                if int(self.region[node]) == d.target:
-                    m *= max(0.0, 1.0 - d.severity)
         return m
 
     def demand_multiplier(self, node: int, rel: int) -> float:

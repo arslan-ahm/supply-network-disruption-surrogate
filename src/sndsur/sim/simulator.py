@@ -555,7 +555,7 @@ def simulate(
                 if frac > 1.0:
                     frac = 1.0
                 shipped = 0.0
-                for e, cnode in ces:
+                for e, _cnode in ces:
                     q = order_book[e] * frac
                     if q <= 0.0 or not lane_row[e]:
                         continue
@@ -565,7 +565,7 @@ def simulate(
             else:
                 left = avail
                 shipped = 0.0
-                for e, cnode in sorted(ces, key=lambda x: x[1]):
+                for e, _cnode in sorted(ces, key=lambda x: x[1]):
                     q = order_book[e]
                     if q > left:
                         q = left
