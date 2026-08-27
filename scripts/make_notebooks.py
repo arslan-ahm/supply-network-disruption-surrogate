@@ -102,8 +102,18 @@ def notebook_01() -> nbf.NotebookNode:
         md(
             "## Attributes versus position\n\n"
             "Below, every node's *own* attributes sit next to its **sole-source reach** —\n"
-            "the number of demand points it can starve outright. The two are only weakly\n"
-            "related, which is the whole problem with scoring suppliers on features.",
+            "the number of demand points it can starve outright.\n\n"
+            "**The correlations are not small, and that is the subtle part.** Throughput and\n"
+            "customer count both correlate around +0.65 with sole-source reach on this\n"
+            "network: big suppliers really do tend to be sole sources. The naive story --\n"
+            "'attributes tell you nothing about position' -- is therefore *false*, and this\n"
+            "notebook prints the numbers rather than quietly picking a friendlier example.\n\n"
+            "The failure is finer than that. A monotone correlation across the bulk of a\n"
+            "distribution does not make the *top* of the ranking right, and the top is the\n"
+            "only part a planner reads. In `docs/RESULTS.md` the feature-based score ranks\n"
+            "the single worst point of failure **44th to 46th of 46** in every one of six\n"
+            "networks -- precisely because those nodes are downstream distribution centres\n"
+            "with modest throughput, which is the tail where the correlation breaks down.",
             "n1-md-attr",
         ),
         code(
