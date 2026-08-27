@@ -162,14 +162,24 @@ def _noise_for(metric: str, split: str = "test_id") -> float:
 
 
 def _verdict(gain: float, scale: float) -> str:
+    """Place a signed gain against the noise scale.
+
+    A large *negative* ratio is not "inside noise" - it means the surrogate is
+    decisively worse, which the first version of this function mislabelled and
+    would have quietly hidden a defeat behind a reassuring phrase.
+    """
     if not np.isfinite(gain) or not np.isfinite(scale) or scale <= 0:
         return "not measured"
     r = gain / scale
     if r >= 2.0:
-        return f"{r:.2f} -> survives"
+        return f"{r:+.2f} -> survives"
     if r >= 1.0:
-        return f"{r:.2f} -> suggestive"
-    return f"{r:.2f} -> inside noise"
+        return f"{r:+.2f} -> suggestive"
+    if r > -1.0:
+        return f"{r:+.2f} -> inside noise"
+    if r > -2.0:
+        return f"{r:+.2f} -> worse (suggestive)"
+    return f"{r:+.2f} -> **worse, outside noise**"
 
 
 def section_verdicts() -> None:
@@ -180,24 +190,43 @@ def section_verdicts() -> None:
     print("### Every claimed gain against the run-to-run noise scale\n")
     print("A difference between two single runs is inside noise unless it exceeds "
           "`sqrt(2) * sd` for that metric, from `seed_variance.csv`.\n")
+    print("The surrogate is compared against **two** baselines: the reference-style "
+          "feature model it is meant to replace, and whichever baseline is actually "
+          "strongest on that split. Comparing only against the reference would "
+          "flatter it.\n")
     rows = []
     for split in SHIFTS:
         sub = m[m.split == split].set_index("method")
-        if "surrogate_ensemble" not in sub.index or "tabular_gbt" not in sub.index:
+        if "surrogate_ensemble" not in sub.index:
             continue
         for metric, better_is_lower in (("mae", True), ("spearman_within_scenario", False)):
             if metric not in sub.columns:
                 continue
             ours = float(sub.loc["surrogate_ensemble", metric])
-            ref = float(sub.loc["tabular_gbt", metric])
-            gain = (ref - ours) if better_is_lower else (ours - ref)
-            scale = _noise_for(metric, split if split != "test_id" else "test_id")
-            rows.append({
-                "split": split, "metric": metric,
-                "surrogate": fmt(ours, 5), "tabular_gbt": fmt(ref, 5),
-                "gain": fmt(gain, 5), "noise_scale": fmt(scale, 5),
-                "verdict": _verdict(gain, scale),
-            })
+            scale = _noise_for(metric, split)
+            # "Baseline" excludes every surrogate variant: comparing the ensemble
+            # against its own single member is not a baseline comparison.
+            others = {
+                b: float(sub.loc[b, metric])
+                for b in sub.index
+                if not str(b).startswith("surrogate") and np.isfinite(sub.loc[b, metric])
+            }
+            if not others:
+                continue
+            best = (min if better_is_lower else max)(others, key=others.get)
+            for label, ref_name in (("vs reference", "tabular_gbt"),
+                                    ("vs best baseline", best)):
+                if ref_name not in others:
+                    continue
+                ref = others[ref_name]
+                gain = (ref - ours) if better_is_lower else (ours - ref)
+                rows.append({
+                    "split": split, "metric": metric, "comparison": label,
+                    "baseline": ref_name,
+                    "surrogate": fmt(ours, 5), "baseline_value": fmt(ref, 5),
+                    "gain": fmt(gain, 5), "noise_scale": fmt(scale, 5),
+                    "verdict": _verdict(gain, scale),
+                })
     if rows:
         print(md_table(pd.DataFrame(rows), list(rows[0].keys())))
     print()
