@@ -130,6 +130,14 @@ class DatasetConfig:
     #: budget reuses the same cache and the same evaluation splits - only the
     #: training set shrinks, which is what makes a data-budget change attributable.
     max_train_scenarios: int = 0
+    #: Cap on scenarios per evaluation split, applied after loading. 0 means all.
+    #: This exists for memory, not for science: the full set expands to roughly
+    #: 800 MB of live objects per process, and on a shared 16 GB machine that put
+    #: the training loop into page-fault thrashing rather than compute. The
+    #: subsample is deterministic and stratified by network, so every topology in
+    #: a split is still represented; the cost is wider confidence intervals,
+    #: which the statistics report honestly.
+    max_eval_scenarios: int = 0
     cache_dir: str = "data/scenarios"
 
 

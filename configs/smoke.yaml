@@ -19,6 +19,7 @@ dataset:
   scenarios_per_eval_network: 10
   traj_periods: 10
   max_train_scenarios: 0
+  max_eval_scenarios: 0
 model:
   hidden: 24
   traj_horizon: 6

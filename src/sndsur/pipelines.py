@@ -22,6 +22,7 @@ a script cannot diverge from what was tested. The functions are:
 
 from __future__ import annotations
 
+import gc
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -101,14 +102,28 @@ def prepare(cfg: Config, rebuild: bool = False) -> ScenarioDataset:
                 s.traj = s.traj[:, :keep]
         ds.traj_periods = keep
 
-    cap = cfg.dataset.max_train_scenarios
-    if cap and cap < len(ds.splits["train"]):
-        # Deterministic subsample, stratified by network so a smaller budget does
-        # not silently drop whole topologies.
-        rng = np.random.default_rng(cfg.run.seed)
-        idx = rng.permutation(len(ds.splits["train"]))[:cap]
-        ds.splits["train"] = [ds.splits["train"][i] for i in sorted(idx)]
-        LOG.info("training set capped at %d scenarios", cap)
+    # Deterministic subsampling, stratified by network so a smaller budget never
+    # silently drops a whole topology.
+    def _cap(split: str, cap: int, salt: int) -> None:
+        scs = ds.splits[split]
+        if not cap or cap >= len(scs):
+            return
+        rng = np.random.default_rng(cfg.run.seed + salt)
+        by_net: dict[int, list[int]] = {}
+        for i, s in enumerate(scs):
+            by_net.setdefault(s.net_id, []).append(i)
+        per = max(1, cap // max(len(by_net), 1))
+        keep: list[int] = []
+        for _net, idxs in sorted(by_net.items()):
+            take = min(per, len(idxs))
+            keep += list(rng.permutation(idxs)[:take])
+        ds.splits[split] = [scs[i] for i in sorted(keep)]
+        LOG.info("%s capped at %d scenarios", split, len(ds.splits[split]))
+
+    _cap("train", cfg.dataset.max_train_scenarios, 0)
+    for i, split in enumerate(("val", "test_id", *SHIFT_SPLITS)):
+        _cap(split, cfg.dataset.max_eval_scenarios, i + 1)
+    gc.collect()
 
     node, edge, tab = fit_normalisers(ds, "train")
     return apply_normalisers(ds, node, edge, tab)
