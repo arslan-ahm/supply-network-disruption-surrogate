@@ -98,10 +98,12 @@ def section_methods() -> None:
     print(md_table(
         sub,
         ["method", "mae", "rmse", "bias", "spearman_pooled",
-         "spearman_within_scenario", "top1_agreement", "n"],
+         "spearman_within_scenario", "spearman_groups", "top1_agreement",
+         "top1_groups", "n"],
         ["method", "MAE (low=good)", "RMSE (low=good)", "bias",
          "Spearman pooled (high=good)", "Spearman within-scenario (high=good)",
-         "top-1 agree (high=good)", "rows"],
+         "scenarios contributing", "top-1 agree (high=good)",
+         "scenarios contributing", "rows"],
     ))
     print()
 
