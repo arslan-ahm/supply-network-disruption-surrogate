@@ -112,8 +112,8 @@ class SupplyGraphSurrogate(nn.Module):
         temporal_decoder: bool = True,
         heteroscedastic: bool = True,
         n_quantiles: int = 3,
-        no_graph_blocks: int = 5,
-        no_graph_width: int = 256,
+        no_graph_blocks: int = 4,
+        no_graph_width: int = 160,
     ) -> None:
         super().__init__()
         self.traj_periods = traj_periods

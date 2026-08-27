@@ -172,8 +172,13 @@ class ModelConfig:
     ensemble: int = 3
     #: Node-only trunk used when ``layers == 0``, sized so the no-message-passing
     #: ablation has a comparable parameter budget rather than a smaller one.
-    no_graph_blocks: int = 5
-    no_graph_width: int = 256
+    #: These two must be re-tuned whenever ``hidden`` changes: the graph model's
+    #: parameter count scales with ``hidden`` while the trunk's scales with
+    #: ``no_graph_width``. At hidden=32 the previous (5, 256) gave the no-graph
+    #: model 1.80x MORE parameters than the graph model; (4, 160) gives 1.025x.
+    #: ``test_no_graph_ablation_has_a_comparable_parameter_budget`` guards this.
+    no_graph_blocks: int = 4
+    no_graph_width: int = 160
 
 
 @dataclass
