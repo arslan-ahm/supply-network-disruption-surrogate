@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from tests.conftest import make_chain, make_diamond, make_sole_source_hub
 
 from sndsur.data.network import (
     N_TIERS,
@@ -19,7 +20,6 @@ from sndsur.data.network import (
     generate_network,
 )
 from sndsur.models.baselines import path_betweenness
-from tests.conftest import make_chain, make_diamond, make_sole_source_hub
 
 # --------------------------------------------------------------------------- #
 # Structure

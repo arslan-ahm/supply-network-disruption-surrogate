@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from tests.conftest import make_chain
 
 from sndsur.data.disruptions import Disruption, DisruptionSet
 from sndsur.data.network import NetworkSpec, generate_network
@@ -30,7 +31,6 @@ from sndsur.sim.simulator import (
     exhaustive_node_criticality,
     simulate,
 )
-from tests.conftest import make_chain
 
 # --------------------------------------------------------------------------- #
 # Hand-solvable cases
