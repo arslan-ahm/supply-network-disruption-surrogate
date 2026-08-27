@@ -16,7 +16,7 @@ import copy
 import json
 from dataclasses import asdict, dataclass, field, fields, is_dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, get_type_hints
 
 import yaml
 
@@ -290,6 +290,32 @@ def _deep_merge(base: dict[str, Any], over: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+#: Resolved type hints per dataclass, cached.
+#
+# ``from __future__ import annotations`` makes every ``dataclasses.Field.type`` a
+# *string*, so ``getattr(t, "__origin__")`` is always None and a naive coercer
+# silently returns its input unchanged. That bug shipped briefly here: YAML lists
+# stayed lists instead of becoming tuples, and ``--set model.bidirectional=0``
+# stored the integer 0 rather than ``False``. ``get_type_hints`` resolves the
+# strings against the module namespace; the cache keeps it off the hot path.
+_HINTS: dict[type, dict[str, Any]] = {}
+
+
+def _hints(cls: type) -> dict[str, Any]:
+    """Resolved (non-string) type hints for a dataclass."""
+    if cls not in _HINTS:
+        _HINTS[cls] = get_type_hints(cls)
+    return _HINTS[cls]
+
+
+def _field_type(cls: type, name: str) -> Any:
+    """The resolved annotation of one field, falling back to the raw string."""
+    try:
+        return _hints(cls)[name]
+    except Exception:  # pragma: no cover - only if an annotation is unresolvable
+        return {f.name: f.type for f in fields(cls)}.get(name)
+
+
 def _coerce(value: Any, target_type: Any) -> Any:
     """Coerce a YAML/CLI value to the dataclass field's annotated type.
 
@@ -332,13 +358,14 @@ def _from_dict(cls: Any, data: dict[str, Any]) -> Any:
     unknown = set(data) - set(known)
     if unknown:
         raise KeyError(f"{cls.__name__} has no field(s) {sorted(unknown)}")
-    for name, f in known.items():
+    for name in known:
         if name not in data:
             continue
-        if is_dataclass(f.type) or (isinstance(f.type, type) and is_dataclass(f.type)):
-            kwargs[name] = _from_dict(f.type, data[name])
+        ftype = _field_type(cls, name)
+        if isinstance(ftype, type) and is_dataclass(ftype):
+            kwargs[name] = _from_dict(ftype, data[name])
         else:
-            kwargs[name] = _coerce(data[name], f.type)
+            kwargs[name] = _coerce(data[name], ftype)
     return cls(**kwargs)
 
 
@@ -380,10 +407,10 @@ def apply_overrides(cfg: Config, overrides: list[str] | None) -> Config:
         if not hasattr(cfg, section):
             raise KeyError(f"unknown config section {section!r}")
         obj = getattr(cfg, section)
-        target = {f.name: f for f in fields(obj)}
-        if key not in target:
+        names = {f.name for f in fields(obj)}
+        if key not in names:
             raise KeyError(f"{section} has no field {key!r}")
-        setattr(obj, key, _coerce(_parse_scalar(value), target[key].type))
+        setattr(obj, key, _coerce(_parse_scalar(value), _field_type(type(obj), key)))
     return cfg
 
 
