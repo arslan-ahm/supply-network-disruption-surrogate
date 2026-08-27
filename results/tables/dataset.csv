@@ -1,8 +1,8 @@
-split,scenarios,rows,networks,mean_nodes,mean_service_loss,p90_service_loss,max_service_loss,frac_zero_impact,mean_disruptions,n_kinds,kind_supplier_outage,kind_capacity_reduction,kind_lead_time_inflation,kind_demand_spike,kind_lane_closure,kind_regional_event,build_seconds_total
-train,2736,21888,12,54,0.012219,0,0.806685,0.937409,1,5,555,531,562,0,551,537,313.247
-val,432,3456,12,54,0.0135943,0,0.825723,0.928241,1,5,92,84,66,0,90,100,313.247
-test_id,432,3456,12,54,0.0141536,0,0.778558,0.931713,1,5,84,85,81,0,88,94,313.247
-shift_topo,420,3360,6,54,0.0126367,0,0.823256,0.925,1,5,85,78,84,0,96,77,313.247
-shift_size,280,4480,4,108,0.0132501,0,0.733829,0.93125,1,5,50,66,52,0,54,58,313.247
-shift_type,420,3360,6,54,0.00645183,0,0.747656,0.928571,1,1,0,0,0,420,0,0,313.247
-shift_multi,420,3360,6,54,0.0316824,0.0851116,0.842752,0.853274,2.49048,5,203,198,209,0,219,217,313.247
+split,scenarios,rows,networks,mean_nodes,mean_service_loss,p90_service_loss,max_service_loss,frac_zero_impact,mean_disruptions,n_kinds,kind_supplier_outage,kind_capacity_reduction,kind_lead_time_inflation,kind_demand_spike,kind_lane_closure,kind_regional_event,build_seconds_total,stage_seconds,dataset_generation_seconds,generated_scenarios,from_cache
+train,1200,9600,12,54,0.0127829,0,0.801562,0.934688,1,5,228,252,248,0,230,242,313.247,2.21476,313.247,5140,True
+val,240,1920,12,54,0.0132893,0,0.825723,0.932813,1,5,47,48,38,0,58,49,313.247,2.21476,313.247,5140,True
+test_id,240,1920,12,54,0.0119664,0,0.778558,0.939063,1,5,37,52,47,0,51,53,313.247,2.21476,313.247,5140,True
+shift_topo,240,1920,6,54,0.0139101,0,0.73576,0.916667,1,5,50,39,37,0,63,51,313.247,2.21476,313.247,5140,True
+shift_size,240,3840,4,108,0.0133813,0,0.733829,0.93099,1,5,44,56,43,0,46,51,313.247,2.21476,313.247,5140,True
+shift_type,240,1920,6,54,0.00676397,0,0.747656,0.930208,1,1,0,0,0,240,0,0,313.247,2.21476,313.247,5140,True
+shift_multi,240,1920,6,54,0.0349452,0.1121,0.842752,0.844271,2.5125,5,127,114,120,0,112,130,313.247,2.21476,313.247,5140,True
