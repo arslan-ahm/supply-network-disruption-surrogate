@@ -1,0 +1,65 @@
+{
+  "train_seconds": 683.3499966999807,
+  "ensemble": [
+    {
+      "best_epoch": 7,
+      "best_val_loss": -1.4975723425547283,
+      "train_seconds": 233.52621889999136,
+      "params": 55752,
+      "epochs_run": 8,
+      "seed": 0,
+      "member": 0,
+      "cached": false
+    },
+    {
+      "best_epoch": 7,
+      "best_val_loss": -1.4455115397771199,
+      "train_seconds": 226.46944899999653,
+      "params": 55752,
+      "epochs_run": 8,
+      "seed": 1000,
+      "member": 1,
+      "cached": false
+    },
+    {
+      "best_epoch": 7,
+      "best_val_loss": -1.4239164193471272,
+      "train_seconds": 223.3543287999928,
+      "params": 55752,
+      "epochs_run": 8,
+      "seed": 2000,
+      "member": 2,
+      "cached": false
+    }
+  ],
+  "mlp_no_message_passing": {
+    "best_epoch": 6,
+    "best_val_loss": -0.9797444343566895,
+    "train_seconds": 116.64804289999302,
+    "params": 100136,
+    "epochs_run": 8,
+    "seed": 0
+  },
+  "params_surrogate": 55752,
+  "params_mlp_no_mp": 100136,
+  "tabular_gbt_tree_nodes": 30,
+  "retrieval_stored_floats": 700800,
+  "splits": {
+    "train": 1200,
+    "val": 192,
+    "test_id": 192,
+    "shift_topo": 198,
+    "shift_size": 200,
+    "shift_type": 198,
+    "shift_multi": 198
+  },
+  "rows": {
+    "train": 9600,
+    "val": 1536,
+    "test_id": 1536,
+    "shift_topo": 1584,
+    "shift_size": 3200,
+    "shift_type": 1584,
+    "shift_multi": 1584
+  }
+}
