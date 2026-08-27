@@ -18,15 +18,17 @@ dataset:
   scenarios_per_train_network: 30
   scenarios_per_eval_network: 10
   traj_periods: 10
+  max_train_scenarios: 0
 model:
   hidden: 24
+  traj_horizon: 6
   layers: 2
   ensemble: 2
   no_graph_blocks: 2
   no_graph_width: 64
 train:
   epochs: 4
-  batch_graphs: 8
+  batch_graphs: 16
   patience: 0
 eval:
   bootstrap: 200

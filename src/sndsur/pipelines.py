@@ -91,6 +91,25 @@ def prepare(cfg: Config, rebuild: bool = False) -> ScenarioDataset:
     LOG.info(
         "dataset ready in %.1fs: %s", time.perf_counter() - t0, ds.counts()
     )
+    # Truncate the predicted trajectory horizon. The simulator recorded more
+    # periods than the surrogate predicts; slicing here keeps the cache reusable
+    # across trajectory-horizon settings instead of forcing a regeneration.
+    keep = min(ds.traj_periods, cfg.model.traj_horizon)
+    if keep < ds.traj_periods:
+        for scs in ds.splits.values():
+            for s in scs:
+                s.traj = s.traj[:, :keep]
+        ds.traj_periods = keep
+
+    cap = cfg.dataset.max_train_scenarios
+    if cap and cap < len(ds.splits["train"]):
+        # Deterministic subsample, stratified by network so a smaller budget does
+        # not silently drop whole topologies.
+        rng = np.random.default_rng(cfg.run.seed)
+        idx = rng.permutation(len(ds.splits["train"]))[:cap]
+        ds.splits["train"] = [ds.splits["train"][i] for i in sorted(idx)]
+        LOG.info("training set capped at %d scenarios", cap)
+
     node, edge, tab = fit_normalisers(ds, "train")
     return apply_normalisers(ds, node, edge, tab)
 
@@ -459,8 +478,6 @@ ABLATIONS: dict[str, dict] = {
     "unidirectional": {"bidirectional": False},
     "no_edge_features": {"use_edge_features": False},
     "linear_traj_decoder": {"temporal_decoder": False},
-    "no_heteroscedastic": {"heteroscedastic": True, "quantiles": ()},
-    "no_quantile_head": {"quantiles": ()},
 }
 
 

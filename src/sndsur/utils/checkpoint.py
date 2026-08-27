@@ -42,6 +42,8 @@ def ensemble_key(cfg: Config) -> str:
         d.scenarios_per_train_network,
         d.scenarios_per_eval_network,
         d.traj_periods,
+        d.max_train_scenarios,
+        m.traj_horizon,
         cfg.sim.warmup,
         cfg.sim.horizon,
         cfg.sim.allow_resourcing,

@@ -122,10 +122,14 @@ class DatasetConfig:
     scenarios_per_eval_network: int = 70
     val_fraction: float = 0.12
     test_id_fraction: float = 0.12
-    #: Number of trajectory periods the surrogate predicts. Truncating below the
-    #: simulator horizon keeps the decoder small; the tail periods are almost
-    #: always zero once a disruption has ended.
+    #: Number of trajectory periods **recorded by the simulator** and stored in
+    #: the cache. This is part of the cache key.
     traj_periods: int = 24
+    #: Cap on training scenarios, applied after loading. 0 means use all of them.
+    #: Applied at load time rather than at generation time so a smaller training
+    #: budget reuses the same cache and the same evaluation splits - only the
+    #: training set shrinks, which is what makes a data-budget change attributable.
+    max_train_scenarios: int = 0
     cache_dir: str = "data/scenarios"
 
 
@@ -133,7 +137,7 @@ class DatasetConfig:
 class ModelConfig:
     """Surrogate architecture."""
 
-    hidden: int = 64
+    hidden: int = 48
     #: Message-passing rounds. 0 reduces the model to a per-node MLP, which is
     #: the ablation that isolates the graph.
     layers: int = 3
@@ -150,8 +154,14 @@ class ModelConfig:
     heteroscedastic: bool = True
     #: Quantile head levels; empty disables it.
     quantiles: tuple[float, ...] = (0.05, 0.5, 0.95)
+    #: Periods of the trajectory the surrogate actually predicts. Truncating
+    #: below the simulator's recorded horizon keeps the sequential decoder cheap
+    #: - it costs one GRU step per period regardless of batch size, and on this
+    #: contended 4-core machine that dispatch cost dominated the whole forward
+    #: pass. The tail periods are almost always zero once a disruption has ended.
+    traj_horizon: int = 12
     #: Members in the deep ensemble (Lakshminarayanan et al., 2017).
-    ensemble: int = 5
+    ensemble: int = 3
     #: Node-only trunk used when ``layers == 0``, sized so the no-message-passing
     #: ablation has a comparable parameter budget rather than a smaller one.
     no_graph_blocks: int = 5
@@ -164,8 +174,8 @@ class TrainConfig:
 
     lr: float = 3e-3
     weight_decay: float = 1e-4
-    epochs: int = 30
-    batch_graphs: int = 24
+    epochs: int = 10
+    batch_graphs: int = 64
     grad_clip: float = 1.0
     scheduler: str = "cosine"
     warmup_epochs: int = 2
@@ -177,7 +187,7 @@ class TrainConfig:
     w_nll: float = 0.50
     w_quantile: float = 0.30
     #: Early-stopping patience in epochs; 0 disables it.
-    patience: int = 12
+    patience: int = 0
 
 
 @dataclass

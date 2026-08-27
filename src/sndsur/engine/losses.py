@@ -115,8 +115,15 @@ def surrogate_loss(out, batch, cfg) -> tuple[Tensor, dict[str, float]]:
     tc = cfg.train
     l_impact, _ = masked_l1(out.impact, batch.impact)
     l_traj = trajectory_loss(out.traj, batch.traj)
-    l_tti, n_tti = masked_l1(out.time_to_impact, batch.tti)
-    l_rec, n_rec = masked_l1(out.recovery_time, batch.recovery)
+    # Timing targets are in *periods* (0-30), while impact is a fraction (0-1).
+    # Left unscaled, the timing L1 came out around 12 against an impact L1 around
+    # 0.05, so even at w_timing=0.2 more than 98% of the gradient went to the
+    # auxiliary head and the headline target was effectively untrained. Dividing
+    # both prediction and target by the horizon puts every term on a comparable
+    # scale; the head still emits periods, so predictions stay directly readable.
+    h = float(max(cfg.sim.horizon, 1))
+    l_tti, n_tti = masked_l1(out.time_to_impact / h, batch.tti / h)
+    l_rec, n_rec = masked_l1(out.recovery_time / h, batch.recovery / h)
 
     total = tc.w_impact * l_impact + tc.w_traj * l_traj + tc.w_timing * (l_tti + l_rec)
     parts = {

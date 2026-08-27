@@ -63,10 +63,11 @@ dataset:
   val_fraction: 0.12
   test_id_fraction: 0.12
   traj_periods: 24
+  max_train_scenarios: 1600
   cache_dir: data/scenarios
 
 model:
-  hidden: 64
+  hidden: 48
   layers: 3
   dropout: 0.10
   bidirectional: true
@@ -74,15 +75,16 @@ model:
   temporal_decoder: true
   heteroscedastic: true
   quantiles: [0.05, 0.5, 0.95]
-  ensemble: 5
+  traj_horizon: 12
+  ensemble: 3
   no_graph_blocks: 5
   no_graph_width: 256
 
 train:
   lr: 0.003
   weight_decay: 0.0001
-  epochs: 30
-  batch_graphs: 24
+  epochs: 10
+  batch_graphs: 64
   grad_clip: 1.0
   scheduler: cosine
   warmup_epochs: 2
@@ -91,7 +93,7 @@ train:
   w_timing: 0.20
   w_nll: 0.50
   w_quantile: 0.30
-  patience: 12
+  patience: 0
 
 eval:
   bootstrap: 2000
