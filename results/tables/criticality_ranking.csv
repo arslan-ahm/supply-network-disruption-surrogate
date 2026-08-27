@@ -1,0 +1,4 @@
+network,net_id,method,n_candidates,sim_seconds,sim_ms_per_candidate,method_seconds,speedup_vs_simulator,n_nonzero_true,spearman_full,recall@3,true_set_size@3,precision@3,jaccard@3,kendall_union@3,regret@3,regret_frac@3,oracle_averted@3,recall@5,true_set_size@5,precision@5,jaccard@5,kendall_union@5,regret@5,regret_frac@5,oracle_averted@5
+shift_0,3,surrogate,18,0.166775,9.26526,0.0604143,2.76052,15,0.504606,0.333333,3,1,0.2,0.2,0.141567,0.244386,0.579278,0.6,5,1,0.428571,0.19518,0.153786,0.193987,0.792764
+shift_0,3,tabular_gbt,18,0.166775,9.26526,0.0009636,173.075,15,,0,3,1,0,,0.537538,0.927944,0.579278,0,5,0.8,0,,0.750392,0.946552,0.792764
+shift_0,3,topology_heuristic,18,0.166775,9.26526,0.0017137,97.3185,15,0.404344,0.333333,3,1,0.2,-0.4,0.316925,0.547104,0.579278,0.6,5,1,0.428571,-0.333333,0.256901,0.324058,0.792764

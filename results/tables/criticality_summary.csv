@@ -1,0 +1,4 @@
+method,spearman_full,recall@3,precision@3,jaccard@3,regret_frac@3,recall@5,precision@5,jaccard@5,regret_frac@5,speedup_vs_simulator,method_seconds,sim_seconds
+surrogate,0.504606,0.333333,1,0.2,0.244386,0.6,1,0.428571,0.193987,2.76052,0.0604143,0.166775
+tabular_gbt,,0,1,0,0.927944,0,0.8,0,0.946552,173.075,0.0009636,0.166775
+topology_heuristic,0.404344,0.333333,1,0.2,0.547104,0.6,1,0.428571,0.324058,97.3185,0.0017137,0.166775

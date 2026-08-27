@@ -1,0 +1,17 @@
+network,budget_s,method,candidates_evaluated,recall_at_k,k,true_set_size
+shift_0,0.05,simulator,5,0.28,5,5
+shift_0,0.05,surrogate,0,0,5,5
+shift_0,0.1,simulator,10,0.58,5,5
+shift_0,0.1,surrogate,18,0.6,5,5
+shift_0,0.25,simulator,18,1,5,5
+shift_0,0.25,surrogate,18,0.6,5,5
+shift_0,0.5,simulator,18,1,5,5
+shift_0,0.5,surrogate,18,0.6,5,5
+shift_0,1,simulator,18,1,5,5
+shift_0,1,surrogate,18,0.6,5,5
+shift_0,2,simulator,18,1,5,5
+shift_0,2,surrogate,18,0.6,5,5
+shift_0,5,simulator,18,1,5,5
+shift_0,5,surrogate,18,0.6,5,5
+shift_0,10,simulator,18,1,5,5
+shift_0,10,surrogate,18,0.6,5,5
