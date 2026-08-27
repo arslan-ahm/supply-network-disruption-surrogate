@@ -378,13 +378,14 @@ inference behaviour stay identical.
 | impact | scalar service loss | L1 + Gaussian NLL |
 | logvar | predictive log-variance | Gaussian NLL |
 | quantiles | 5th / 50th / 95th percentile | pinball |
-| traj | 24-period excess-unmet | tapered L1 |
+| traj | 8-period excess-unmet (`model.traj_horizon`) | tapered L1 |
 | timing | time-to-impact, recovery time | masked L1 |
 
 ### 6.7 Loss design
 
 **L1, not L2, on impact.** The label distribution is a large mass at exactly zero
-(most disruptions are absorbed — 93.7% of training *rows*) with a long right tail.
+(most disruptions are absorbed — 93.5% of training *rows*, from `dataset.csv`) with a
+long right tail.
 Squared error puts nearly all its gradient on the tail; the first version trained
 that way had a decent MAE on big events and ranked the bottom two-thirds of nodes
 at random, which is useless, because separating small from zero *is* the screening
@@ -447,7 +448,8 @@ failures.
 
 **`mlp_no_message_passing`.** The surrogate with `layers = 0`: identical features,
 loss, training loop and heads; no node ever sees a neighbour. The node-only trunk
-is widened so the parameter count matches (219,784 vs 214,728 — within 2.4%),
+is widened so the parameter count matches (57,160 vs 55,752 at the shipped width —
+within 2.5%),
 because the first version of this ablation simply deleted the processor and came
 out 3.6× smaller, which would have confounded "the graph helps" with "more
 parameters help".
