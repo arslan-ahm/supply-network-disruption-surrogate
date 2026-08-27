@@ -206,17 +206,30 @@ def _heuristic_rows(ds: ScenarioDataset, split: str) -> np.ndarray:
                 ) if cust[v] else set()
             cache[s.net_id] = (scores, reach)
         scores, reach = cache[s.net_id]
+        net = ds.networks[s.net_id].net
+        floor = float(scores.min())
+
+        # Disruption.target means different things per kind. Treating a region id
+        # as a node id (the original bug here) scored an arbitrary node, because
+        # regions are numbered 0..3 and so collide with the lowest node ids.
+        sources: list[int] = []
         if s.disruption.items:
             primary = max(s.disruption.items, key=lambda d: d.severity)
-            src = int(primary.target)
-        else:
-            src = int(s.demand_rows[0])
-        base = float(scores[src]) if 0 <= src < scores.shape[0] else 0.0
-        # Shifted to be non-negative: the composite is standardised and so has
-        # negative values, and a negative "criticality" ranks below an
+            if primary.kind == "regional_event":
+                sources = [int(v) for v in np.flatnonzero(net.region == primary.target)]
+            else:
+                sources = [int(primary.target)]
+        if not sources:
+            sources = [int(s.demand_rows[0])]
+        sources = [v for v in sources if 0 <= v < scores.shape[0]] or [0]
+
+        # Shifted to be non-negative: the composite is standardised and so takes
+        # negative values, and a negative "criticality" would rank below an
         # unreachable pair, which is the wrong ordering.
-        base = base - float(scores.min())
-        hit = reach.get(src, set())
+        base = max(float(scores[v]) for v in sources) - floor
+        hit: set[int] = set()
+        for v in sources:
+            hit |= reach.get(v, set())
         out.append(
             np.array([base if int(v) in hit else 0.0 for v in s.demand_rows], dtype=np.float64)
         )
