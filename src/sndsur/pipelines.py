@@ -44,6 +44,7 @@ from sndsur.data.scenarios import (
     SPLITS,
     ScenarioDataset,
     _sim_config,
+    dataset_path,
     kind_breakdown,
     load_or_build,
     split_summary,
@@ -130,17 +131,51 @@ def prepare(cfg: Config, rebuild: bool = False) -> ScenarioDataset:
 
 
 def build_data(cfg: Config, rebuild: bool = True) -> pd.DataFrame:
-    """Generate the dataset and write ``results/tables/dataset.csv``."""
+    """Generate (or load) the dataset and write ``results/tables/dataset.csv``.
+
+    Two time columns, and the distinction is load-bearing:
+
+    ``stage_seconds``
+        Wall-clock of this call, whatever it did.
+    ``dataset_generation_seconds``
+        Wall-clock of the run that actually *simulated* the scenarios. On a cache
+        hit this is carried forward from the existing table rather than
+        overwritten, because it is what the efficiency break-even charges to the
+        surrogate: the simulator time spent building its training set. Recording
+        a 2-second pickle load there instead of the 313 seconds of simulation
+        would inflate the surrogate's economics by two orders of magnitude.
+    """
+    path = dataset_path(cfg)
+    existed = path.exists() and not rebuild
     t0 = time.perf_counter()
     ds = prepare(cfg, rebuild=rebuild)
     seconds = time.perf_counter() - t0
+
+    generation = seconds
+    if existed:
+        prior = TABLES / "dataset.csv"
+        generation = float("nan")
+        if prior.exists():
+            old_frame = pd.read_csv(prior)
+            for col in ("dataset_generation_seconds", "build_seconds_total"):
+                if col in old_frame.columns and old_frame[col].notna().any():
+                    generation = float(old_frame[col].dropna().iloc[0])
+                    break
+        LOG.info(
+            "dataset loaded from cache in %.1fs; generation time carried forward: %s",
+            seconds,
+            f"{generation:.1f}s" if np.isfinite(generation) else "not measured",
+        )
+
     rows = split_summary(ds)
     for r in rows:
         r.update({f"kind_{k}": v for k, v in kind_breakdown(ds, str(r["split"])).items()})
     frame = pd.DataFrame(rows)
-    frame["build_seconds_total"] = seconds
+    frame["stage_seconds"] = seconds
+    frame["dataset_generation_seconds"] = generation
+    frame["from_cache"] = bool(existed)
     write_csv(frame, TABLES / "dataset.csv")
-    LOG.info("dataset table written (%.1fs total build)", seconds)
+    LOG.info("dataset table written (stage %.1fs)", seconds)
     return frame
 
 
@@ -794,12 +829,16 @@ def run_efficiency(cfg: Config) -> pd.DataFrame:
     single_train_seconds = float(np.mean([r["train_seconds"] for r in records]))
     ensemble_train_seconds = float(np.sum([r["train_seconds"] for r in records]))
 
+    # The simulator time that produced the training set. Charged to the surrogate
+    # in the break-even; see build_data for why this is not the stage wall-clock.
     dataset_seconds = float("nan")
     dpath = TABLES / "dataset.csv"
     if dpath.exists():
         dframe = pd.read_csv(dpath)
-        if "build_seconds_total" in dframe.columns:
-            dataset_seconds = float(dframe["build_seconds_total"].iloc[0])
+        for col in ("dataset_generation_seconds", "build_seconds_total"):
+            if col in dframe.columns and dframe[col].notna().any():
+                dataset_seconds = float(dframe[col].dropna().iloc[0])
+                break
 
     pools = (
         ("shift_topo", sorted({s.net_id for s in ds.splits["shift_topo"]})[:2]),
