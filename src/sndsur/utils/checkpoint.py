@@ -14,6 +14,7 @@ cached file records the config it came from for cross-checking.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -60,7 +61,17 @@ def ensemble_key(cfg: Config) -> str:
 
 
 def ensemble_path(cfg: Config) -> Path:
-    return CKPT_DIR / f"ensemble_{abs(hash(ensemble_key(cfg))) % (10**12):012d}.pt"
+    """Cache file for this configuration's ensemble.
+
+    Hashed with SHA-256 rather than the builtin ``hash()``. Python randomises
+    string hashing per process unless ``PYTHONHASHSEED`` is fixed *before*
+    interpreter start, so the builtin produced a different filename in every
+    process and the cache never hit across runs - the criticality and efficiency
+    stages silently retrained the ensemble they were supposed to reuse, which is
+    exactly the compute this cache exists to save.
+    """
+    digest = hashlib.sha256(ensemble_key(cfg).encode("utf-8")).hexdigest()[:16]
+    return CKPT_DIR / f"ensemble_{digest}.pt"
 
 
 def save_ensemble(cfg: Config, models: list, records: list[dict]) -> Path:

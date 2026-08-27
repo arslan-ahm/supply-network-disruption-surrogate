@@ -207,3 +207,43 @@ def test_thread_limit_is_neighbourly():
     """Other projects share this machine; the shipped config must not hog it."""
     cfg = load_config("configs/base.yaml")
     assert cfg.run.threads <= 2
+
+
+def test_checkpoint_path_is_stable_across_processes():
+    """The cache filename must not depend on Python's randomised string hash.
+
+    `hash()` is salted per interpreter unless PYTHONHASHSEED is set before start,
+    so a builtin-hash filename differed in every process and the ensemble cache
+    never hit - the criticality and efficiency stages silently retrained the
+    weights they were meant to reuse. The digest below is pinned so the same
+    mistake cannot return unnoticed.
+    """
+    import subprocess
+    import sys
+
+    from sndsur.utils.checkpoint import ensemble_path
+
+    cfg = load_config("configs/base.yaml")
+    here = ensemble_path(cfg).name
+    code = (
+        "from sndsur.config import load_config;"
+        "from sndsur.utils.checkpoint import ensemble_path;"
+        "print(ensemble_path(load_config('configs/base.yaml')).name)"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True
+    ).stdout.strip()
+    assert out == here, f"checkpoint path unstable: {here} vs {out}"
+
+
+def test_checkpoint_key_reacts_to_weight_affecting_settings():
+    """Changing something that alters the weights must invalidate the cache."""
+    from sndsur.utils.checkpoint import ensemble_key
+
+    base = load_config("configs/base.yaml")
+    assert ensemble_key(base) == ensemble_key(load_config("configs/base.yaml"))
+    changed = load_config("configs/base.yaml", ["model.hidden=999"])
+    assert ensemble_key(base) != ensemble_key(changed)
+    # ...and something that cannot alter them must not.
+    same = load_config("configs/base.yaml", ["eval.bootstrap=17"])
+    assert ensemble_key(base) == ensemble_key(same)
