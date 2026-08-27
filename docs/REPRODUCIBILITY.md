@@ -150,6 +150,22 @@ pytest tests/test_simulator.py::test_simulation_is_deterministic
 `test_training_is_reproducible_from_its_seed` asserts
 `np.abs(run_a - run_b).max() == 0.0` exactly, not approximately.
 
+### Observed in the wild, not only in a test
+
+The ensemble was trained twice from separate process launches, hours apart, on a
+machine whose load differed substantially between the two. The training traces are
+identical to five decimal places:
+
+```
+run 1   epoch 0  loss 0.07373  val -0.28690      run 2   epoch 0  loss 0.07373  val -0.28690
+        epoch 5  loss -1.26929 val -1.38481              epoch 5  loss -1.26929 val -1.38481
+```
+
+Both appear in the committed stage logs. This is the property that lets the
+checkpoint cache be trusted: reusing a cached ensemble is equivalent to retraining
+it, so the criticality and efficiency stages measure the same weights the method
+comparison evaluated.
+
 ### What is *not* deterministic across machines
 
 Wall-clock timings, obviously. Also, `torch` CPU reductions can differ in the last
