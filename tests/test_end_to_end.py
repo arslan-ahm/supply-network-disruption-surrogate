@@ -469,3 +469,28 @@ def test_different_seeds_give_different_models(tiny_cfg):
         for s in (1, 2)
     ]
     assert float(np.abs(outs[0] - outs[1]).max()) > 0.0
+
+
+@pytest.mark.slow
+def test_surrogate_predictions_are_not_degenerate(tiny_cfg):
+    """A constant predictor passes almost every other test in this file.
+
+    On a target that is ~94% exact zeros, the constant minimising absolute error
+    is 0, and a model that collapses to it scores a fine MAE while being useless
+    for the only thing the surrogate is for: ordering candidates. The boosted-tree
+    reference model does exactly this on the criticality probes, so this is not a
+    hypothetical failure mode - it is the observed behaviour of a real baseline.
+    """
+    import sndsur.pipelines as P
+    from sndsur.data.features import N_EDGE_FEATURES, N_NODE_FEATURES
+    from sndsur.engine.batching import iterate_batches
+    from sndsur.engine.trainer import predict, train_surrogate
+
+    ds = P.prepare(tiny_cfg)
+    model, _ = train_surrogate(
+        tiny_cfg, ds, N_NODE_FEATURES, N_EDGE_FEATURES, log_every=0
+    )
+    b = iterate_batches(ds.splits["test_id"], ds, tiny_cfg.train.batch_graphs, False)
+    p = predict(model, b, ds).impact
+    assert np.ptp(p) > 1e-6, "the surrogate collapsed to a constant prediction"
+    assert len(np.unique(np.round(p, 6))) > 2
