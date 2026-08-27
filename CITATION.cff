@@ -12,11 +12,11 @@ abstract: >-
   comparison against running the simulator directly.
 type: software
 authors:
-  - family-names: Sajid
-    given-names: Habiba
+  - family-names: Ahmad
+    given-names: Arslan
 version: 1.0.0
 license: MIT
-repository-code: "https://github.com/HabibaSajid321/supply-network-disruption-surrogate"
+repository-code: "https://github.com/arslan-ahmad/supply-network-disruption-surrogate"
 keywords:
   - supply-chain-resilience
   - graph-neural-network
