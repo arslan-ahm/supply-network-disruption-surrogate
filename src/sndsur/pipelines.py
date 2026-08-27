@@ -585,6 +585,11 @@ def run_criticality(cfg: Config) -> dict[str, pd.DataFrame]:
 
     shift_net_ids = sorted({s.net_id for s in ds.splits["shift_topo"]})
     chosen = shift_net_ids[: cfg.eval.n_criticality_networks]
+    # The k used for the headline log line and the budget curve. Taken from the
+    # config rather than hardcoded: the smoke config uses recall_k = [3, 5] and a
+    # hardcoded 10 crashed the stage with a KeyError.
+    ks = tuple(cfg.eval.recall_k)
+    k_report = ks[1] if len(ks) > 1 else ks[0]
     node_norm, edge_norm, tab_norm = fit_normalisers(ds, "train")
 
     rank_rows: list[dict] = []
@@ -681,17 +686,18 @@ def run_criticality(cfg: Config) -> dict[str, pd.DataFrame]:
             sim_ms_each,
             sur_seconds * 1000.0,
             budgets,
-            k=10,
+            k=k_report,
             seed=cfg.run.seed,
         ):
             budget_rows.append({"network": net.name, **r})
         LOG.info(
-            "criticality %-10s %d candidates: oracle %.2fs, surrogate %.3fs, recall@10 %.2f",
+            "criticality %-10s %d candidates: oracle %.2fs, surrogate %.3fs, recall@%d %.2f",
             net.name,
             cands.size,
             sim_seconds,
             sur_seconds,
-            rank_rows[-3]["recall@10"],
+            k_report,
+            rank_rows[-3][f"recall@{k_report}"],
         )
 
     frames = {
