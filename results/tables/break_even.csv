@@ -1,2 +1,2 @@
 train_seconds,dataset_seconds,setup_seconds,sim_ms_per_scenario,surrogate_ms_per_scenario,saving_per_scenario_ms,break_even_scenarios,speedup_per_scenario,ensemble_train_seconds,ensemble_members,params_per_member,break_even_scenarios_ensemble,note
-227.783,0.191692,227.975,31.0233,2.87582,28.1475,8099.3,10.7877,683.35,3,55752,24284.3,break-even charges one member training run plus full dataset generation; the ensemble column charges all members
+296.085,313.247,609.332,50.3284,4.41088,45.9175,13270.2,11.4101,888.256,3,55752,26166.6,break-even charges one member training run plus full dataset generation; the ensemble column charges all members

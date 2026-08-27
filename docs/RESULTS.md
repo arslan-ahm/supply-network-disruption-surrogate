@@ -15,13 +15,14 @@ interpretable; without it a table of differences is just a table of differences.
 |---|---|
 | Counterfactual ranking beats feature-based risk scoring at finding true single points of failure | **holds, decisively** — 36 of 36 adjudicated disagreements go to the counterfactual |
 | Message passing is doing the work | **holds** — the only ablation whose damage clears the noise scale (+4.11x); within-scenario Spearman 0.582 to 0.402 |
-| The surrogate generalises better than nearest-neighbour retrieval under topology shift | **holds on two of four shift axes** — retrieval wins in-distribution (-2.56x, worse outside noise); the surrogate wins on `shift_size` (+3.09x, survives) and `shift_topo` (+1.33x, suggestive) |
+| The surrogate generalises better than nearest-neighbour retrieval under topology shift | **one axis survives** — retrieval wins in-distribution (-3.86x, worse outside noise); the surrogate wins on `shift_size` (+2.50x, survives) and `shift_topo` (+1.41x, suggestive); `shift_type` and `shift_multi` are inside noise |
+| The surrogate predicts impact *magnitude* well | **retracted** — worse than the reference model on MAE on four of five splits, by -4.5x to -22.2x the noise scale |
 | The learned surrogate is the best criticality ranker | **retracted** — a five-line topology heuristic beats it on recall@k, regret and rank correlation |
 | The surrogate's predictive intervals are calibrated | **fails** — grossly over-covered (0.97 empirical at nominal 0.50) |
 | Uncertainty tracks error | **holds within a split** (error-detection AUROC 0.99), **fails across splits** (mean sigma barely moves under shift) |
 | The deep ensemble contributes epistemic uncertainty | **fails** — the epistemic term is ~4% of total predictive sigma |
-| The surrogate wins on decision quality at a fixed compute budget | **fails at this network size** — exhaustive simulation reaches recall 1.0 by a 2 s budget while the surrogate plateaus |
-| The surrogate is faster per scenario | **holds** — 10.8x measured, but break-even is ~19k screened scenarios once dataset generation is charged |
+| The surrogate wins on decision quality at a fixed compute budget | **fails at every budget tested** — it ties at 1 s and is beaten from 2 s onward, where exhaustive search reaches recall 1.0 and the surrogate plateaus at 0.433 |
+| The surrogate is faster per scenario | **holds** — 11.4x measured, but break-even is 13,270 screened scenarios (26,167 for the ensemble) once dataset generation is charged |
 
 ---
 
@@ -158,12 +159,16 @@ Each split differs from `test_id` in exactly one respect.
 | topology_heuristic | 0.3486 | 0.2179 | 0.2402 | 0.5047 | -0.4245 |
 
 **The retrieval result is the interesting one.** Nearest-neighbour scenario
-retrieval is the *best* method in-distribution on both magnitude and rank, and it
-degrades on every shift split while the surrogate holds or improves. That is
-exactly the behaviour the two approaches should have — retrieval interpolates
-within its training set, the surrogate has learned something transferable — and it
-is the clearest evidence in this repository that the surrogate is not merely
-memorising.
+retrieval is the *best* method in-distribution on both magnitude and rank — it
+beats the surrogate's within-scenario Spearman by 0.165, which is 3.86x the noise
+scale, so that defeat is real and is reported as one. It then degrades under
+shift while the surrogate holds: on the larger-network split the surrogate is
+ahead by 2.50x the noise scale (survives) and on unseen topologies by 1.41x
+(suggestive). That is exactly the behaviour the two approaches should have —
+retrieval interpolates within its training set, the surrogate has learned
+something transferable — and it is the clearest evidence here that the surrogate
+is not merely memorising. It is also, honestly, a *one-axis* win: the unseen-
+mechanism and multi-point splits are both inside noise.
 
 **The no-message-passing result is the strongest.** With the same features, the
 same loss, the same schedule and a parameter budget matched to 1.025x, removing
@@ -258,10 +263,10 @@ A positive delta means removing that mechanism made the model worse.
 
 | method | recall@5 | precision@5 | regret_frac@5 | recall@10 | precision@10 | regret_frac@10 | recall@20 | precision@20 | regret_frac@20 | spearman_full | score_std | distinct_scores | method_seconds | sim_seconds | speedup_vs_simulator |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| surrogate | 0.3667 | 0.6000 | 0.4875 | 0.4667 | 0.5500 | 0.4279 | 0.4914 | 0.4167 | 0.3303 | 0.2416 | 0.0008 | 25.3333 | 0.4456 | 1.5720 | 3.6076 |
-| tabular_gbt | 0.0000 | 0.1000 | 0.9943 | 0.0500 | 0.1667 | 0.9791 | 0.1660 | 0.2583 | 0.7724 | not measured | 0.0000 | 1.0000 | 0.0044 | 1.5720 | 465.9000 |
-| tabular_ridge | 0.2000 | 0.6667 | 0.7029 | 0.4167 | 0.6167 | 0.5457 | 0.5749 | 0.5083 | 0.3495 | 0.4324 | 0.0231 | 37.1667 | 0.0006 | 1.5720 | 2698.5900 |
-| topology_heuristic | 0.4333 | 0.7667 | 0.4248 | 0.6333 | 0.7500 | 0.1613 | 0.7056 | 0.5667 | 0.0932 | 0.5683 | 1.4484 | 41.3333 | 0.0023 | 1.5720 | 683.5370 |
+| surrogate | 0.3333 | 0.5333 | 0.5546 | 0.4333 | 0.5167 | 0.4701 | 0.5045 | 0.4250 | 0.3378 | 0.2071 | 0.0007 | 24.1667 | 0.8179 | 2.6186 | 3.3960 |
+| tabular_gbt | 0.0000 | 0.1000 | 0.9943 | 0.0500 | 0.1667 | 0.9791 | 0.1660 | 0.2583 | 0.7724 | not measured | 0.0000 | 1.0000 | 0.0071 | 2.6186 | 600.9970 |
+| tabular_ridge | 0.2000 | 0.6667 | 0.7029 | 0.4167 | 0.6167 | 0.5457 | 0.5749 | 0.5083 | 0.3495 | 0.4324 | 0.0231 | 37.1667 | 0.0010 | 2.6186 | 2734.6600 |
+| topology_heuristic | 0.4333 | 0.7667 | 0.4248 | 0.6333 | 0.7500 | 0.1613 | 0.7056 | 0.5667 | 0.0932 | 0.5683 | 1.4484 | 41.3333 | 0.0038 | 2.6186 | 698.6680 |
 
 **`tabular_gbt` produced a constant score for every candidate.** Its recall is therefore 0 for a reason that has nothing to do with topology: on a target that is ~94% exact zeros, the constant that minimises absolute error is 0, and every probe shares the same standardised disruption so the only varying inputs are the disrupted node's own attributes. This is a real property of the reference approach on this task, not a tuning failure - but the linear variant is reported alongside it precisely so the reader can see whether the collapse is specific to the boosted trees.
 
@@ -271,11 +276,11 @@ A positive delta means removing that mechanism made the model worse.
 
 | network | A | A rank (feat) | A rank (cf) | A true loss | B | B rank (feat) | B rank (cf) | B true loss | winner | margin |
 |---|---|---|---|---|---|---|---|---|---|---|
-| shift_4 | 0 | 1 | 11 | 0 | 45 | 46 | 1 | 0.7430 | counterfactual | 0.7430 |
-| shift_4 | 1 | 2 | 12 | 0 | 45 | 46 | 1 | 0.7430 | counterfactual | 0.7430 |
-| shift_4 | 2 | 3 | 13 | 0 | 45 | 46 | 1 | 0.7430 | counterfactual | 0.7430 |
-| shift_4 | 4 | 5 | 15 | 0 | 45 | 46 | 1 | 0.7430 | counterfactual | 0.7430 |
-| shift_4 | 5 | 6 | 16 | 0 | 45 | 46 | 1 | 0.7430 | counterfactual | 0.7430 |
+| shift_4 | 0 | 1 | 12 | 0 | 45 | 46 | 1 | 0.7430 | counterfactual | 0.7430 |
+| shift_4 | 1 | 2 | 13 | 0 | 45 | 46 | 1 | 0.7430 | counterfactual | 0.7430 |
+| shift_4 | 2 | 3 | 14 | 0 | 45 | 46 | 1 | 0.7430 | counterfactual | 0.7430 |
+| shift_4 | 4 | 5 | 16 | 0 | 45 | 46 | 1 | 0.7430 | counterfactual | 0.7430 |
+| shift_4 | 5 | 6 | 17 | 0 | 45 | 46 | 1 | 0.7430 | counterfactual | 0.7430 |
 
 Worked example of the largest disagreement:
 
@@ -301,12 +306,12 @@ demand points and the feature score has no way to see that.
 **The learned surrogate is not the thing that wins it.** A hand-weighted composite
 of six topology signals — sole-source reach, downstream reach, path betweenness,
 BOM depth, inverse capacity slack, throughput — beats the trained graph network on
-every criticality metric: recall@10 0.63 against 0.47, regret fraction 0.16
-against 0.43, full-vector Spearman 0.57 against 0.24. The heuristic costs
+every criticality metric: recall@10 0.633 against 0.433, regret fraction 0.161
+against 0.470, full-vector Spearman 0.568 against 0.207. The heuristic costs
 milliseconds and no training at all.
 
 **Why the surrogate underperforms here, specifically.** Its score spread across
-candidates is 0.0008, against a true spread of 0.13 — it is *nearly constant* on
+candidates is 0.0007, against a true spread of 0.13 — it is *nearly constant* on
 the criticality probes, and it under-predicts the largest impacts by more than an
 order of magnitude (max predicted 0.052 against max true 0.748). Its
 within-scenario ranking is good (Spearman ~0.58) but criticality ranking is a
@@ -405,12 +410,12 @@ make that claim.
 
 | component | variant | n_nodes | median_ms | iqr_ms | per_item_ms | params |
 |---|---|---|---|---|---|---|
-| simulator | shift_size | 108.0000 | 62.4655 | 4.4314 | 62.4655 | not measured |
-| simulator | shift_topo | 54.0000 | 31.0233 | 2.6605 | 31.0233 | not measured |
-| surrogate_batched_all_candidates | shift_size | 108.0000 | 320.2625 | 57.0225 | 3.4811 | 55752.0000 |
-| surrogate_batched_all_candidates | shift_topo | 54.0000 | 132.2875 | 14.6677 | 2.8758 | 55752.0000 |
-| surrogate_single | shift_size | 108.0000 | 28.3105 | 10.7061 | 28.3105 | 55752.0000 |
-| surrogate_single | shift_topo | 54.0000 | 33.8300 | 6.7332 | 33.8300 | 55752.0000 |
+| simulator | shift_size | 108.0000 | 108.4670 | 9.9628 | 108.4670 | not measured |
+| simulator | shift_topo | 54.0000 | 50.3284 | 5.7636 | 50.3284 | not measured |
+| surrogate_batched_all_candidates | shift_size | 108.0000 | 589.8935 | 105.2922 | 6.4119 | 55752.0000 |
+| surrogate_batched_all_candidates | shift_topo | 54.0000 | 202.9000 | 20.3435 | 4.4109 | 55752.0000 |
+| surrogate_single | shift_size | 108.0000 | 51.8127 | 30.3842 | 51.8127 | 55752.0000 |
+| surrogate_single | shift_topo | 54.0000 | 27.8575 | 5.8990 | 27.8575 | 55752.0000 |
 
 Warm-up ≥ 8 iterations, ≥ 25 timed repeats, median and IQR reported.
 
@@ -418,15 +423,15 @@ Warm-up ≥ 8 iterations, ≥ 25 timed repeats, median and IQR reported.
 
 | quantity | value |
 |---|---|
-| `sim_ms_per_scenario` | 31.023 |
-| `surrogate_ms_per_scenario` | 2.876 |
-| `speedup_per_scenario` | 10.788 |
-| `train_seconds` | 227.783 |
-| `ensemble_train_seconds` | 683.350 |
-| `dataset_seconds` | 0.192 |
-| `setup_seconds` | 227.975 |
-| `break_even_scenarios` | 8099.300 |
-| `break_even_scenarios_ensemble` | 24284.300 |
+| `sim_ms_per_scenario` | 50.328 |
+| `surrogate_ms_per_scenario` | 4.411 |
+| `speedup_per_scenario` | 11.410 |
+| `train_seconds` | 296.085 |
+| `ensemble_train_seconds` | 888.256 |
+| `dataset_seconds` | 313.247 |
+| `setup_seconds` | 609.332 |
+| `break_even_scenarios` | 13270.200 |
+| `break_even_scenarios_ensemble` | 26166.600 |
 
 Setup cost includes the dataset generation that used the very simulator being replaced.
 
@@ -434,39 +439,43 @@ Setup cost includes the dataset generation that used the very simulator being re
 
 | budget_s | simulator | surrogate |
 |---|---|---|
-| 0.050 | 0.074 | 0.000 |
-| 0.100 | 0.095 | 0.000 |
-| 0.250 | 0.171 | 0.000 |
-| 0.500 | 0.318 | 0.400 |
-| 1.000 | 0.642 | 0.467 |
-| 2.000 | 1.000 | 0.467 |
-| 5.000 | 1.000 | 0.467 |
-| 10.000 | 1.000 | 0.467 |
+| 0.050 | 0.000 | 0.000 |
+| 0.100 | 0.074 | 0.000 |
+| 0.250 | 0.126 | 0.000 |
+| 0.500 | 0.201 | 0.000 |
+| 1.000 | 0.369 | 0.367 |
+| 2.000 | 0.752 | 0.433 |
+| 5.000 | 1.000 | 0.433 |
+| 10.000 | 1.000 | 0.433 |
 
 Recall@10 of the true critical set, averaged over the evaluated networks.
 
 ### The honest reading
 
-**The per-scenario speed-up is real**: 31.0 ms for one simulator counterfactual
-against 2.876 ms for one screened scenario in a batched surrogate pass, a measured
-10.8x, both with 8 warm-up iterations and 25 timed repeats on the same machine
-state.
+**The per-scenario speed-up is real**: 50.3 ms for one simulator counterfactual
+against 4.41 ms for one screened scenario in a batched surrogate pass, a measured
+**11.4x**, both with 8 warm-up iterations and 25 timed repeats on the same machine
+state and reported as median with IQR.
 
-**The decision-quality experiment does not favour the surrogate at this scale.**
-The budget curve is the honest test and the surrogate loses it: it wins only in a
-narrow window around a 0.5 s budget, and from 2 s onward exhaustive simulation
-reaches recall 1.0 while the surrogate plateaus at 0.467 because its own ranking
-quality caps it. The reason is simple arithmetic — a 46-candidate sweep costs the
-oracle 1.6 s, so there is no regime at this network size where you cannot simply
-afford the exact answer. A surrogate for this task earns its keep only when the
-candidate set is large enough that the oracle is genuinely unaffordable, and this
-repository does not demonstrate such a regime.
+**The decision-quality experiment does not favour the surrogate at any budget
+tested.** The budget curve is the honest test and the surrogate loses it outright:
+below its own fixed cost it returns nothing, at 1 s it ties the simulator
+(0.367 against 0.369), and from 2 s onward exhaustive search pulls away to recall
+1.0 while the surrogate plateaus at 0.433 because its own ranking quality caps it.
+The reason is arithmetic rather than modelling — a 46-candidate sweep costs the
+oracle about 2.3 s, so at this network size there is simply no regime in which the
+exact answer is unaffordable. A surrogate for this task earns its keep only when
+the candidate set is large enough that the oracle is out of reach, and this
+repository does not demonstrate such a regime. That is a limitation of the
+experiment's scale as much as of the model, and it is stated rather than buried.
 
 **Break-even is brutal once the accounting is honest.** Charging the surrogate for
 its training *and* for the dataset generation that used the very simulator it
-replaces, it must screen on the order of ten thousand scenarios before it has paid
-for itself — roughly two hundred full network sweeps. The `break_even.csv` table
-reports both the single-model and the full-ensemble figures; neither is small.
+replaces, a single model must screen **13,270** scenarios before it has paid for
+itself, and the shipped three-member ensemble **26,167** — roughly 290 and 570 full
+46-candidate network sweeps respectively. Had the dataset-generation term been
+omitted, as it commonly is, the figure would have looked roughly 250x better; see
+the retraction in §8.6.
 
 ---
 

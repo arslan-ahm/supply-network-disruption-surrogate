@@ -1,6 +1,6 @@
 ![Python](https://img.shields.io/badge/Python-3.12-blue)
 ![PyTorch](https://img.shields.io/badge/PyTorch-2.13%20CPU-red)
-![Tests](https://img.shields.io/badge/tests-342%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-344%20passing-brightgreen)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
 # Counterfactual Impact, Not a Risk Score
@@ -29,9 +29,10 @@ of against a proxy.
 >
 > **The learned model is not what wins it.** A hand-weighted composite of six
 > topology signals beats the trained graph network on every criticality metric
-> (recall@10 **0.633 vs 0.467**, regret fraction **0.161 vs 0.428**). The
+> (recall@10 **0.633 vs 0.433**, regret fraction **0.161 vs 0.470**). The
 > surrogate is a poor criticality ranker: its score spread across candidates is
-> 0.0008 against a true spread of 0.130, and it under-predicts the worst impacts
+> 0.0007 against a true spread of 0.130, and its full-vector rank correlation with
+> the truth is **0.21**, against **0.57** for the heuristic, and it under-predicts the worst impacts
 > by more than an order of magnitude. **That retracts this project's headline
 > claim** — see [Results §5](docs/RESULTS.md).
 >
@@ -43,11 +44,15 @@ of against a proxy.
 > at 1.8x the noise scale, which this repository calls *suggestive* and not more.
 > The GRU trajectory decoder is **inside noise** and is not claimed to help.
 >
-> **Efficiency is real but does not pay for itself here.** 10.8x per screened
-> scenario, measured. But break-even is ~10⁴ scenarios once training *and* the
-> dataset generation that used the very simulator being replaced are charged, and
-> in the fixed-compute experiment exhaustive simulation reaches recall 1.0 by a
-> 2-second budget while the surrogate plateaus at 0.467.
+> **Efficiency is real but does not pay for itself here.** **11.4x** per screened
+> scenario, measured (50.3 ms simulator against 4.41 ms surrogate). But once
+> training *and* the dataset generation that used the very simulator being
+> replaced are charged, break-even is **13,270 screened scenarios** for a single
+> model and **26,167** for the shipped ensemble — roughly 290 and 570 full
+> 46-candidate network sweeps. And in the fixed-compute experiment the surrogate
+> **never wins at any budget**: it ties the simulator at 1 s (0.367 against 0.369)
+> and is beaten from 2 s onward, where exhaustive search reaches recall 1.0 and
+> the surrogate plateaus at 0.433.
 
 ---
 
@@ -85,21 +90,22 @@ approximately — which finds the true top-10 more reliably?
 
 | compute budget (s) | simulator recall@k | surrogate recall@k |
 |---|---|---|
-| 0.05 | 0.074 | 0.000 |
-| 0.1 | 0.095 | 0.000 |
-| 0.25 | 0.171 | 0.000 |
-| 0.5 | 0.318 | 0.400 |
-| 1 | 0.642 | 0.467 |
-| 2 | 1.000 | 0.467 |
-| 5 | 1.000 | 0.467 |
-| 10 | 1.000 | 0.467 |
+| 0.05 | 0.000 | 0.000 |
+| 0.1 | 0.074 | 0.000 |
+| 0.25 | 0.126 | 0.000 |
+| 0.5 | 0.201 | 0.000 |
+| 1 | 0.369 | 0.367 |
+| 2 | 0.752 | 0.433 |
+| 5 | 1.000 | 0.433 |
+| 10 | 1.000 | 0.433 |
 
-The surrogate wins only in a narrow window near a 0.5-second budget. Beyond that
-the oracle simply wins, because a 46-candidate sweep costs it 1.6 s and there is
-no regime at this network size where you cannot afford the exact answer. **A
-surrogate for this task earns its keep only when the candidate set is large enough
-that the oracle is genuinely unaffordable, and this repository does not
-demonstrate such a regime.**
+**The surrogate does not win at any budget.** A 46-candidate sweep costs the
+oracle about 2.3 s, so there is no regime at this network size where the exact
+answer is unaffordable — and below the surrogate's own fixed cost it returns
+nothing at all. **A surrogate for this task earns its keep only when the candidate
+set is large enough that the oracle is genuinely out of reach, and this repository
+does not demonstrate such a regime.** That is the single most important limitation
+here, and it is a limitation of the experiment's scale as much as of the model.
 
 ## The distinction that governs every number here
 
@@ -184,10 +190,10 @@ The surrogate is compared against **two** baselines: the reference-style feature
 
 | method | recall@5 | precision@5 | regret_frac@5 | recall@10 | precision@10 | regret_frac@10 | recall@20 | precision@20 | regret_frac@20 | spearman_full | score_std | distinct_scores | method_seconds | sim_seconds | speedup_vs_simulator |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| surrogate | 0.3667 | 0.6000 | 0.4875 | 0.4667 | 0.5500 | 0.4279 | 0.4914 | 0.4167 | 0.3303 | 0.2416 | 0.0008 | 25.3333 | 0.4456 | 1.5720 | 3.6076 |
-| tabular_gbt | 0.0000 | 0.1000 | 0.9943 | 0.0500 | 0.1667 | 0.9791 | 0.1660 | 0.2583 | 0.7724 | not measured | 0.0000 | 1.0000 | 0.0044 | 1.5720 | 465.9000 |
-| tabular_ridge | 0.2000 | 0.6667 | 0.7029 | 0.4167 | 0.6167 | 0.5457 | 0.5749 | 0.5083 | 0.3495 | 0.4324 | 0.0231 | 37.1667 | 0.0006 | 1.5720 | 2698.5900 |
-| topology_heuristic | 0.4333 | 0.7667 | 0.4248 | 0.6333 | 0.7500 | 0.1613 | 0.7056 | 0.5667 | 0.0932 | 0.5683 | 1.4484 | 41.3333 | 0.0023 | 1.5720 | 683.5370 |
+| surrogate | 0.3333 | 0.5333 | 0.5546 | 0.4333 | 0.5167 | 0.4701 | 0.5045 | 0.4250 | 0.3378 | 0.2071 | 0.0007 | 24.1667 | 0.8179 | 2.6186 | 3.3960 |
+| tabular_gbt | 0.0000 | 0.1000 | 0.9943 | 0.0500 | 0.1667 | 0.9791 | 0.1660 | 0.2583 | 0.7724 | not measured | 0.0000 | 1.0000 | 0.0071 | 2.6186 | 600.9970 |
+| tabular_ridge | 0.2000 | 0.6667 | 0.7029 | 0.4167 | 0.6167 | 0.5457 | 0.5749 | 0.5083 | 0.3495 | 0.4324 | 0.0231 | 37.1667 | 0.0010 | 2.6186 | 2734.6600 |
+| topology_heuristic | 0.4333 | 0.7667 | 0.4248 | 0.6333 | 0.7500 | 0.1613 | 0.7056 | 0.5667 | 0.0932 | 0.5683 | 1.4484 | 41.3333 | 0.0038 | 2.6186 | 698.6680 |
 
 **`tabular_gbt` produced a constant score for every candidate.** Its recall is therefore 0 for a reason that has nothing to do with topology: on a target that is ~94% exact zeros, the constant that minimises absolute error is 0, and every probe shares the same standardised disruption so the only varying inputs are the disrupted node's own attributes. This is a real property of the reference approach on this task, not a tuning failure - but the linear variant is reported alongside it precisely so the reader can see whether the collapse is specific to the boosted trees.
 
@@ -197,11 +203,11 @@ The surrogate is compared against **two** baselines: the reference-style feature
 
 | network | A | A rank (feat) | A rank (cf) | A true loss | B | B rank (feat) | B rank (cf) | B true loss | winner | margin |
 |---|---|---|---|---|---|---|---|---|---|---|
-| shift_4 | 0 | 1 | 11 | 0 | 45 | 46 | 1 | 0.7430 | counterfactual | 0.7430 |
-| shift_4 | 1 | 2 | 12 | 0 | 45 | 46 | 1 | 0.7430 | counterfactual | 0.7430 |
-| shift_4 | 2 | 3 | 13 | 0 | 45 | 46 | 1 | 0.7430 | counterfactual | 0.7430 |
-| shift_4 | 4 | 5 | 15 | 0 | 45 | 46 | 1 | 0.7430 | counterfactual | 0.7430 |
-| shift_4 | 5 | 6 | 16 | 0 | 45 | 46 | 1 | 0.7430 | counterfactual | 0.7430 |
+| shift_4 | 0 | 1 | 12 | 0 | 45 | 46 | 1 | 0.7430 | counterfactual | 0.7430 |
+| shift_4 | 1 | 2 | 13 | 0 | 45 | 46 | 1 | 0.7430 | counterfactual | 0.7430 |
+| shift_4 | 2 | 3 | 14 | 0 | 45 | 46 | 1 | 0.7430 | counterfactual | 0.7430 |
+| shift_4 | 4 | 5 | 16 | 0 | 45 | 46 | 1 | 0.7430 | counterfactual | 0.7430 |
+| shift_4 | 5 | 6 | 17 | 0 | 45 | 46 | 1 | 0.7430 | counterfactual | 0.7430 |
 
 Worked example of the largest disagreement:
 
@@ -213,12 +219,12 @@ Worked example of the largest disagreement:
 
 | component | variant | n_nodes | median_ms | iqr_ms | per_item_ms | params |
 |---|---|---|---|---|---|---|
-| simulator | shift_size | 108.0000 | 62.4655 | 4.4314 | 62.4655 | not measured |
-| simulator | shift_topo | 54.0000 | 31.0233 | 2.6605 | 31.0233 | not measured |
-| surrogate_batched_all_candidates | shift_size | 108.0000 | 320.2625 | 57.0225 | 3.4811 | 55752.0000 |
-| surrogate_batched_all_candidates | shift_topo | 54.0000 | 132.2875 | 14.6677 | 2.8758 | 55752.0000 |
-| surrogate_single | shift_size | 108.0000 | 28.3105 | 10.7061 | 28.3105 | 55752.0000 |
-| surrogate_single | shift_topo | 54.0000 | 33.8300 | 6.7332 | 33.8300 | 55752.0000 |
+| simulator | shift_size | 108.0000 | 108.4670 | 9.9628 | 108.4670 | not measured |
+| simulator | shift_topo | 54.0000 | 50.3284 | 5.7636 | 50.3284 | not measured |
+| surrogate_batched_all_candidates | shift_size | 108.0000 | 589.8935 | 105.2922 | 6.4119 | 55752.0000 |
+| surrogate_batched_all_candidates | shift_topo | 54.0000 | 202.9000 | 20.3435 | 4.4109 | 55752.0000 |
+| surrogate_single | shift_size | 108.0000 | 51.8127 | 30.3842 | 51.8127 | 55752.0000 |
+| surrogate_single | shift_topo | 54.0000 | 27.8575 | 5.8990 | 27.8575 | 55752.0000 |
 
 Warm-up ≥ 8 iterations, ≥ 25 timed repeats, median and IQR reported.
 
@@ -226,15 +232,15 @@ Warm-up ≥ 8 iterations, ≥ 25 timed repeats, median and IQR reported.
 
 | quantity | value |
 |---|---|
-| `sim_ms_per_scenario` | 31.023 |
-| `surrogate_ms_per_scenario` | 2.876 |
-| `speedup_per_scenario` | 10.788 |
-| `train_seconds` | 227.783 |
-| `ensemble_train_seconds` | 683.350 |
-| `dataset_seconds` | 0.192 |
-| `setup_seconds` | 227.975 |
-| `break_even_scenarios` | 8099.300 |
-| `break_even_scenarios_ensemble` | 24284.300 |
+| `sim_ms_per_scenario` | 50.328 |
+| `surrogate_ms_per_scenario` | 4.411 |
+| `speedup_per_scenario` | 11.410 |
+| `train_seconds` | 296.085 |
+| `ensemble_train_seconds` | 888.256 |
+| `dataset_seconds` | 313.247 |
+| `setup_seconds` | 609.332 |
+| `break_even_scenarios` | 13270.200 |
+| `break_even_scenarios_ensemble` | 26166.600 |
 
 Setup cost includes the dataset generation that used the very simulator being replaced.
 
@@ -242,14 +248,14 @@ Setup cost includes the dataset generation that used the very simulator being re
 
 | budget_s | simulator | surrogate |
 |---|---|---|
-| 0.050 | 0.074 | 0.000 |
-| 0.100 | 0.095 | 0.000 |
-| 0.250 | 0.171 | 0.000 |
-| 0.500 | 0.318 | 0.400 |
-| 1.000 | 0.642 | 0.467 |
-| 2.000 | 1.000 | 0.467 |
-| 5.000 | 1.000 | 0.467 |
-| 10.000 | 1.000 | 0.467 |
+| 0.050 | 0.000 | 0.000 |
+| 0.100 | 0.074 | 0.000 |
+| 0.250 | 0.126 | 0.000 |
+| 0.500 | 0.201 | 0.000 |
+| 1.000 | 0.369 | 0.367 |
+| 2.000 | 0.752 | 0.433 |
+| 5.000 | 1.000 | 0.433 |
+| 10.000 | 1.000 | 0.433 |
 
 Recall@10 of the true critical set, averaged over the evaluated networks.
 
