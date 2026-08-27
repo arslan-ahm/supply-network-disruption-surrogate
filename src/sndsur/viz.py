@@ -184,11 +184,16 @@ def figure_criticality_scatter() -> Path | None:
     df = _read("criticality_detail.csv")
     if df is None or df.empty:
         return None
-    fig, axes = plt.subplots(1, 2, figsize=(11, 4.4), sharey=True)
-    for ax, col, title in (
-        (axes[0], "surrogate", "Surrogate vs simulator truth"),
-        (axes[1], "tabular_gbt", "Reference-style feature score vs truth"),
-    ):
+    panels = [
+        ("surrogate", "Surrogate (learned)"),
+        ("tabular_gbt", "Reference-style feature score"),
+    ]
+    # The heuristic is the method that actually wins this task, so it belongs in
+    # the figure. Showing only the two that fail would be a flattering omission.
+    if "topology_heuristic" in df.columns:
+        panels.append(("topology_heuristic", "Topology heuristic (no learning)"))
+    fig, axes = plt.subplots(1, len(panels), figsize=(5.4 * len(panels), 4.4), sharey=True)
+    for ax, (col, title) in zip(np.atleast_1d(axes), panels, strict=True):
         sole = df["sole_source_reach"] > 0
         ax.scatter(
             df.loc[~sole, col], df.loc[~sole, "truth"], s=14, alpha=0.55,
@@ -198,8 +203,13 @@ def figure_criticality_scatter() -> Path | None:
             df.loc[sole, col], df.loc[sole, "truth"], s=26, alpha=0.85,
             color="#b02a2a", marker="^", label="sole-source reach > 0",
         )
-        _style(ax, title, f"{col} score", "true total service loss")
-    axes[0].legend(fontsize=7, frameon=False)
+        from scipy import stats as _st
+
+        r = _st.spearmanr(df[col], df["truth"]).statistic
+        suffix = f"Spearman {r:.2f}" if np.isfinite(r) else "undefined (constant score)"
+        label = f"{title}\n{suffix}"
+        _style(ax, label, f"{col} score", "true total service loss")
+    np.atleast_1d(axes)[0].legend(fontsize=7, frameon=False)
     return _save(fig, "criticality_scatter.png")
 
 
