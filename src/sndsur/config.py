@@ -145,7 +145,7 @@ class DatasetConfig:
 class ModelConfig:
     """Surrogate architecture."""
 
-    hidden: int = 48
+    hidden: int = 32
     #: Message-passing rounds. 0 reduces the model to a per-node MLP, which is
     #: the ablation that isolates the graph.
     layers: int = 3
@@ -167,7 +167,7 @@ class ModelConfig:
     #: - it costs one GRU step per period regardless of batch size, and on this
     #: contended 4-core machine that dispatch cost dominated the whole forward
     #: pass. The tail periods are almost always zero once a disruption has ended.
-    traj_horizon: int = 12
+    traj_horizon: int = 8
     #: Members in the deep ensemble (Lakshminarayanan et al., 2017).
     ensemble: int = 3
     #: Node-only trunk used when ``layers == 0``, sized so the no-message-passing

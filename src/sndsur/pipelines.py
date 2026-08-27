@@ -489,11 +489,14 @@ ABLATIONS: dict[str, dict] = {
     "full": {},
     "no_message_passing": {"layers": 0},
     "one_hop": {"layers": 1},
-    "two_hop": {"layers": 2},
     "unidirectional": {"bidirectional": False},
     "no_edge_features": {"use_edge_features": False},
     "linear_traj_decoder": {"temporal_decoder": False},
 }
+# `two_hop` (layers=2) was dropped from the shipped matrix for compute, not for
+# scientific reasons: `no_message_passing` and `one_hop` already bracket the
+# depth question, and on a shared machine each extra variant is another full
+# training run. It remains a valid entry to re-enable.
 
 
 def run_ablations(cfg: Config, variants: tuple[str, ...] | None = None) -> pd.DataFrame:
