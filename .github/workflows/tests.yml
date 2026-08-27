@@ -1,0 +1,56 @@
+name: tests
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Pin Python 3.12
+        run: uv python install 3.12
+
+      - name: Create the environment
+        run: uv venv --python 3.12 .venv
+
+      # CPU wheels only. The default index would pull a CUDA build, which is
+      # ~2 GB and cannot run on a CI runner anyway.
+      - name: Install torch (CPU)
+        run: uv pip install --index-url https://download.pytorch.org/whl/cpu
+             --extra-index-url https://pypi.org/simple torch
+
+      - name: Install the package
+        run: |
+          uv pip install numpy scipy pandas pyyaml matplotlib scikit-learn pytest ruff
+          uv pip install -e . --no-deps
+
+      - name: Lint
+        run: uv run ruff check src scripts tests
+
+      # Two threads: CI runners have two cores, and the tests are latency-bound
+      # rather than throughput-bound at this scale.
+      - name: Tests
+        env:
+          OMP_NUM_THREADS: "2"
+        run: uv run pytest tests -q -m "not slow"
+
+      - name: Smoke - the real pipeline end to end at tiny scale
+        env:
+          OMP_NUM_THREADS: "2"
+        run: uv run python scripts/compare_methods.py --config configs/smoke.yaml --rebuild

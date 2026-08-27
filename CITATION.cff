@@ -1,0 +1,59 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "Supply-network disruption surrogate: counterfactual impact, not a risk score"
+abstract: >-
+  A learned temporal graph surrogate for a mechanistic multi-echelon supply-network
+  simulator. Instead of scoring suppliers on their own features, the model answers a
+  counterfactual - if this node or lane fails, what happens to service level at each
+  demand point, when, and for how long - and is validated against the simulator as an
+  exact oracle. Includes the reference-style tabular baseline, a parameter-matched
+  no-message-passing ablation, calibrated predictive intervals, generalisation tests
+  along four named distribution-shift axes, and a decision-quality-at-fixed-compute
+  comparison against running the simulator directly.
+type: software
+authors:
+  - family-names: Sajid
+    given-names: Habiba
+version: 1.0.0
+license: MIT
+repository-code: "https://github.com/HabibaSajid321/supply-network-disruption-surrogate"
+keywords:
+  - supply-chain-resilience
+  - graph-neural-network
+  - learned-surrogate
+  - counterfactual-analysis
+  - discrete-event-simulation
+  - uncertainty-quantification
+references:
+  - type: article
+    title: "Neural Message Passing for Quantum Chemistry"
+    authors:
+      - family-names: Gilmer
+        given-names: Justin
+    year: 2017
+  - type: article
+    title: "Learning to Simulate Complex Physics with Graph Networks"
+    authors:
+      - family-names: Sanchez-Gonzalez
+        given-names: Alvaro
+    year: 2020
+  - type: article
+    title: "Simple and Scalable Predictive Uncertainty Estimation using Deep Ensembles"
+    authors:
+      - family-names: Lakshminarayanan
+        given-names: Balaji
+    year: 2017
+  - type: article
+    title: "Viability of Intertwined Supply Networks"
+    authors:
+      - family-names: Ivanov
+        given-names: Dmitry
+      - family-names: Dolgui
+        given-names: Alexandre
+    year: 2020
+  - type: article
+    title: "Identifying Risks and Mitigating Disruptions in the Automotive Supply Chain"
+    authors:
+      - family-names: Simchi-Levi
+        given-names: David
+    year: 2015

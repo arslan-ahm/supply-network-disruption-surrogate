@@ -1,0 +1,141 @@
+run:
+  name: base
+  seed: 0
+  out_dir: results/runs
+  device: cpu
+  threads: 1
+  deterministic: true
+netgen:
+  n_per_tier:
+  - 16
+  - 14
+  - 10
+  - 6
+  - 8
+  n_regions: 4
+  same_region_prob: 0.55
+  groups_per_node:
+  - 1
+  - 3
+  sole_source_prob: 0.4
+  max_suppliers_per_group: 3
+  preferential_exponent: 1.0
+  lead_time_same_region:
+  - 1
+  - 2
+  lead_time_cross_region:
+  - 2
+  - 4
+  capacity_slack:
+  - 0.08
+  - 0.45
+  base_stock_periods:
+  - 0.0
+  - 1.2
+  input_cover_periods:
+  - 0.3
+  - 1.8
+  bom_coeff:
+  - 0.8
+  - 1.6
+  demand_mean:
+  - 8.0
+  - 20.0
+  demand_cv: 0.2
+  large_scale: 2.0
+disgen:
+  kinds:
+  - supplier_outage
+  - capacity_reduction
+  - lead_time_inflation
+  - demand_spike
+  - lane_closure
+  - regional_event
+  n_points:
+  - 1
+  - 1
+  start:
+  - 2
+  - 8
+  duration:
+  - 4
+  - 18
+  severity:
+  - 0.4
+  - 1.0
+  lead_severity:
+  - 0.5
+  - 3.0
+  demand_severity:
+  - 0.4
+  - 2.0
+  upstream_bias: 0.6
+  holdout_kind: demand_spike
+  multi_points:
+  - 2
+  - 3
+sim:
+  warmup: 22
+  horizon: 30
+  backlog: true
+  backlog_cap_periods: 6.0
+  allow_resourcing: false
+  allocation: proportional
+  record_trajectory: true
+dataset:
+  n_train_networks: 12
+  n_shift_networks: 6
+  n_large_networks: 4
+  scenarios_per_train_network: 300
+  scenarios_per_eval_network: 70
+  val_fraction: 0.12
+  test_id_fraction: 0.12
+  traj_periods: 24
+  max_train_scenarios: 1600
+  cache_dir: data/scenarios
+model:
+  hidden: 48
+  layers: 3
+  dropout: 0.1
+  bidirectional: true
+  use_edge_features: true
+  temporal_decoder: true
+  heteroscedastic: true
+  quantiles:
+  - 0.05
+  - 0.5
+  - 0.95
+  traj_horizon: 12
+  ensemble: 3
+  no_graph_blocks: 5
+  no_graph_width: 256
+train:
+  lr: 0.003
+  weight_decay: 0.0001
+  epochs: 10
+  batch_graphs: 64
+  grad_clip: 1.0
+  scheduler: cosine
+  warmup_epochs: 2
+  w_impact: 1.0
+  w_traj: 0.3
+  w_timing: 0.2
+  w_nll: 0.5
+  w_quantile: 0.3
+  patience: 0
+eval:
+  bootstrap: 2000
+  recall_k:
+  - 5
+  - 10
+  - 20
+  coverage_levels:
+  - 0.5
+  - 0.8
+  - 0.9
+  - 0.95
+  n_criticality_networks: 6
+  criticality_duration: 8
+  criticality_start: 4
+  bench_warmup: 8
+  bench_repeats: 25
