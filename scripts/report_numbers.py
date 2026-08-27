@@ -17,11 +17,19 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+# Windows consoles default to cp1252, which cannot encode the maths symbols used
+# in the table headers. Reconfiguring rather than avoiding them keeps the rendered
+# markdown readable; the fallback keeps this working on a stream that cannot be
+# reconfigured (a pipe on some platforms).
+with contextlib.suppress(AttributeError, ValueError):
+    sys.stdout.reconfigure(encoding="utf-8")
 
 TABLES = Path("results/tables")
 SHIFTS = ("test_id", "shift_topo", "shift_size", "shift_type", "shift_multi")
@@ -91,8 +99,9 @@ def section_methods() -> None:
         sub,
         ["method", "mae", "rmse", "bias", "spearman_pooled",
          "spearman_within_scenario", "top1_agreement", "n"],
-        ["method", "MAE ↓", "RMSE ↓", "bias", "Spearman (pooled) ↑",
-         "Spearman (within scenario) ↑", "top-1 agree ↑", "rows"],
+        ["method", "MAE (low=good)", "RMSE (low=good)", "bias",
+         "Spearman pooled (high=good)", "Spearman within-scenario (high=good)",
+         "top-1 agree (high=good)", "rows"],
     ))
     print()
 
@@ -128,7 +137,7 @@ def section_seeds() -> None:
             sub,
             ["metric", "n_seeds", "mean", "sd", "min", "max", "spread", "diff_noise_scale"],
             ["metric", "seeds", "mean", "sd", "min", "max", "range",
-             "noise scale (√2·sd)"],
+             "noise scale (sqrt2*sd)"],
             nd=5,
         ))
         print()
@@ -155,10 +164,10 @@ def _verdict(gain: float, scale: float) -> str:
         return "not measured"
     r = gain / scale
     if r >= 2.0:
-        return f"{r:.2f} → survives"
+        return f"{r:.2f} -> survives"
     if r >= 1.0:
-        return f"{r:.2f} → suggestive"
-    return f"{r:.2f} → inside noise"
+        return f"{r:.2f} -> suggestive"
+    return f"{r:.2f} -> inside noise"
 
 
 def section_verdicts() -> None:
@@ -168,7 +177,7 @@ def section_verdicts() -> None:
         return
     print("### Every claimed gain against the run-to-run noise scale\n")
     print("A difference between two single runs is inside noise unless it exceeds "
-          "`√2 · sd` for that metric, from `seed_variance.csv`.\n")
+          "`sqrt(2) * sd` for that metric, from `seed_variance.csv`.\n")
     rows = []
     for split in SHIFTS:
         sub = m[m.split == split].set_index("method")
@@ -205,7 +214,7 @@ def section_stats() -> None:
         sub,
         ["name_a", "mean_a", "mean_b", "difference", "ci_lower", "ci_upper",
          "p_adjusted", "effect_size", "n"],
-        ["method (abs error)", "mean", "ref mean", "Δ", "CI low", "CI high",
+        ["method (abs error)", "mean", "ref mean", "delta", "CI low", "CI high",
          "p (Holm)", "Cohen's d", "n"],
         nd=5,
     ))
@@ -227,11 +236,11 @@ def section_ablation() -> None:
         sub,
         ["variant", "params", "mae", "delta_vs_full", "verdict",
          "spearman_within_scenario", "train_seconds"],
-        ["variant", "params", "MAE", "Δ vs full", "vs noise",
+        ["variant", "params", "MAE", "delta vs full", "vs noise",
          "Spearman (within)", "train s"],
         nd=5,
     ))
-    print("\nA positive Δ means removing that mechanism made the model worse.\n")
+    print("\nA positive delta means removing that mechanism made the model worse.\n")
 
 
 def section_criticality() -> None:
@@ -296,8 +305,8 @@ def section_calibration() -> None:
             ["split", "mean_sigma", "mean_abs_error", "sigma_error_spearman",
              "error_detection_auroc", "ause", "mean_sigma_aleatoric",
              "mean_sigma_epistemic"],
-            ["split", "mean σ", "mean |err|", "σ↔err Spearman", "err-detect AUROC",
-             "AUSE", "σ aleatoric", "σ epistemic"],
+            ["split", "mean sigma", "mean |err|", "sigma-vs-err Spearman", "err-detect AUROC",
+             "AUSE", "sigma aleatoric", "sigma epistemic"],
         ))
         print()
 
