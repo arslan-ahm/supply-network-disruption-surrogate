@@ -763,7 +763,14 @@ def run_criticality(cfg: Config) -> dict[str, pd.DataFrame]:
             sim_seconds,
             sur_seconds,
             k_report,
-            rank_rows[-3][f"recall@{k_report}"],
+            # Index by method name, not by position. `rank_rows[-3]` silently
+            # became the wrong method the moment a fourth was added, and the log
+            # then reported the constant baseline's recall as the surrogate's.
+            next(
+                r[f"recall@{k_report}"]
+                for r in reversed(rank_rows)
+                if r["method"] == "surrogate"
+            ),
         )
 
     frames = {
