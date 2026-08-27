@@ -253,10 +253,22 @@ def section_criticality() -> None:
           "(`results/tables/criticality_summary.csv`)\n")
     cols = ["method"] + [x for x in c.columns if x.startswith(("recall@", "precision@",
                                                                "regret_frac@"))]
-    cols += [x for x in ("spearman_full", "method_seconds", "sim_seconds",
+    cols += [x for x in ("spearman_full", "score_std", "distinct_scores",
+                         "method_seconds", "sim_seconds",
                          "speedup_vs_simulator") if x in c.columns]
     print(md_table(c, cols, nd=4))
     print()
+    if "score_std" in c.columns and (c.score_std < 1e-9).any():
+        dead = ", ".join(f"`{m}`" for m in c.loc[c.score_std < 1e-9, "method"])
+        print(f"**{dead} produced a constant score for every candidate.** Its "
+              "recall is therefore 0 for a reason that has nothing to do with "
+              "topology: on a target that is ~94% exact zeros, the constant that "
+              "minimises absolute error is 0, and every probe shares the same "
+              "standardised disruption so the only varying inputs are the "
+              "disrupted node's own attributes. This is a real property of the "
+              "reference approach on this task, not a tuning failure - but the "
+              "linear variant is reported alongside it precisely so the reader "
+              "can see whether the collapse is specific to the boosted trees.\n")
     d = read("disagreements.csv")
     if d is not None and len(d):
         print("### Where the feature score and the counterfactual disagree "

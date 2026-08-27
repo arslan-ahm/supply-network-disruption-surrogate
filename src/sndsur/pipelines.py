@@ -580,6 +580,7 @@ def run_criticality(cfg: Config) -> dict[str, pd.DataFrame]:
     sim = _sim_config(cfg)
     train_rows = rows_from_split(ds, "train")
     tab_gbt = TabularRiskModel("gbt", cfg.run.seed).fit(train_rows.x, train_rows.y)
+    tab_ridge = TabularRiskModel("ridge", cfg.run.seed).fit(train_rows.x, train_rows.y)
     models, _ = train_or_load_ensemble(cfg, ds, N_NODE_FEATURES, N_EDGE_FEATURES)
     heur = TopologyHeuristic()
 
@@ -630,6 +631,10 @@ def run_criticality(cfg: Config) -> dict[str, pd.DataFrame]:
         tab_seconds = time.perf_counter() - t0
 
         t0 = time.perf_counter()
+        ridge_scores = tab_ridge.predict(tab_x).reshape(cands.size, n_dem).sum(axis=1)
+        ridge_seconds = time.perf_counter() - t0
+
+        t0 = time.perf_counter()
         heur_all = heur.node_scores(net)
         heur_scores = heur_all[cands] - heur_all.min()
         heur_seconds = time.perf_counter() - t0
@@ -637,11 +642,13 @@ def run_criticality(cfg: Config) -> dict[str, pd.DataFrame]:
         scores = {
             "surrogate": sur_scores,
             "tabular_gbt": tab_scores,
+            "tabular_ridge": ridge_scores,
             "topology_heuristic": heur_scores,
         }
         secs = {
             "surrogate": sur_seconds,
             "tabular_gbt": tab_seconds,
+            "tabular_ridge": ridge_seconds,
             "topology_heuristic": heur_seconds,
         }
         for name, sc in scores.items():
@@ -655,6 +662,13 @@ def run_criticality(cfg: Config) -> dict[str, pd.DataFrame]:
                     "sim_ms_per_candidate": sim_ms_each,
                     "method_seconds": secs[name],
                     "speedup_vs_simulator": sim_seconds / max(secs[name], 1e-9),
+                    # A method that emits the same score for every candidate has
+                    # no ranking at all; without these columns that shows up only
+                    # as a suspiciously round recall.
+                    "score_std": float(np.std(sc)),
+                    "score_range": float(np.max(sc) - np.min(sc)),
+                    "distinct_scores": int(np.unique(np.round(sc, 9)).size),
+                    "is_constant": bool(np.ptp(sc) < 1e-12),
                     **RANK.ranking_report(sc, truth, tuple(cfg.eval.recall_k)),
                 }
             )
@@ -670,6 +684,7 @@ def run_criticality(cfg: Config) -> dict[str, pd.DataFrame]:
                     "truth": float(truth[i]),
                     "surrogate": float(sur_scores[i]),
                     "tabular_gbt": float(tab_scores[i]),
+                    "tabular_ridge": float(ridge_scores[i]),
                     "topology_heuristic": float(heur_scores[i]),
                     "sole_source_reach": float(ss_reach[c]),
                     "downstream_reach": float(d_reach[c]),
@@ -715,7 +730,10 @@ def run_criticality(cfg: Config) -> dict[str, pd.DataFrame]:
         c
         for c in frames["ranking"].columns
         if c.startswith(("recall@", "regret_frac@", "spearman", "precision@", "jaccard@"))
-    ] + ["speedup_vs_simulator", "method_seconds", "sim_seconds"]
+    ] + [
+        "speedup_vs_simulator", "method_seconds", "sim_seconds",
+        "score_std", "score_range", "distinct_scores",
+    ]
     agg = frames["ranking"].groupby("method")[metric_cols].mean().reset_index()
     write_csv(agg, TABLES / "criticality_summary.csv")
     frames["summary"] = agg
