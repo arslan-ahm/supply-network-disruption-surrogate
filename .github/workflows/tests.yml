@@ -50,6 +50,14 @@ jobs:
           OMP_NUM_THREADS: "2"
         run: uv run pytest tests -q -m "not slow"
 
+      # The slow tests train real (tiny) models end to end. They are the reason a
+      # `-m "not slow"` run is not evidence that the suite passes: a genuine
+      # failure here sat undetected through 43 commits. Ubuntu only, to keep the
+      # matrix cheap.
+      - name: Slow tests (end to end)
+        if: matrix.os == 'ubuntu-latest'
+        run: uv run pytest tests -q -m slow
+
       - name: Smoke - the real pipeline end to end at tiny scale
         env:
           OMP_NUM_THREADS: "2"

@@ -269,7 +269,9 @@ proof of §8.7.
 rank fidelity against the reference model at all, because a constant's Spearman is
 undefined. It can now, and the answer is interesting: the GBT wins
 within-scenario Spearman in-distribution (0.687 against 0.571) but the surrogate
-wins on the **held-out disruption mechanism** by 0.503 against 0.288 — **+8.90x
+wins on the **held-out disruption mechanism** by 0.503 against 0.288 (both columns
+are `surrogate_ensemble`, the variant the paired tests are run on; `surrogate_single`
+scores 0.529 on the same split, so naming the ensemble is the conservative choice) — **+8.90x
 the noise scale**, the largest surviving margin anywhere in this document — and
 suggestively on unseen topologies (+1.16x). The tabular model interpolates the
 mechanisms it was trained on; the surrogate transfers to one it has never seen.

@@ -70,7 +70,7 @@ The speed factor is real; the fixed-compute experiment is one the surrogate lose
 >
 > **One thing the fix gained.** With a baseline whose rank correlation is defined
 > at all, a new result appears that was previously unmeasurable: on the held-out
-> disruption mechanism the surrogate's within-scenario Spearman is **0.503
+> disruption mechanism the ensemble surrogate's within-scenario Spearman is **0.503
 > against the GBT's 0.288, +8.90σ** — the largest surviving margin anywhere in
 > this repository. The tabular model interpolates the mechanisms it was trained
 > on; the surrogate transfers to one it has never seen.
