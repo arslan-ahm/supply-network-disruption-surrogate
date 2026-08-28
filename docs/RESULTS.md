@@ -990,7 +990,36 @@ by epoch 5 (`-1.26665` against `-1.26929`). The committed numbers all come from
 launches with those variables unset. Determinism here is conditional on the launch
 environment, and that condition was undocumented.
 
-### 8.9 What was *not* re-run for §8.7, and why
+### 8.9 The new guard immediately caught a second degenerate baseline
+
+Not a bug in shipped results, but worth recording because it is the guard earning
+its keep within an hour of being written.
+
+With `require_non_degenerate` wired into `run_comparison`, the end-to-end smoke
+test began failing: **`retrieval_knn` emits a single distinct prediction on
+`shift_type` at the smoke scale.** With 96 training rows, the held-out disruption
+mechanism (`demand_spike`, the only intervention that travels purely upstream)
+puts every one of the 48 query rows far enough from anything in the training set
+that all of them retrieve the *same* 8 neighbours, and the inverse-distance-weighted
+mean is therefore identical for all 48.
+
+This is a real property of nearest-neighbour retrieval at small sample size rather
+than a coding error, and it does not affect any shipped number: at the shipped
+9,600 training rows `retrieval_knn` emits 215 distinct predictions on `shift_type`
+and 275 on `test_id` (`method_comparison.csv`, `n_unique_predictions`). But it is a
+sharp illustration of the thing this whole section is about — the "just look it up"
+baseline degenerates into a constant exactly on the split designed to test
+extrapolation, and *no metric other than the unique-prediction count would say so*.
+Its MAE on that split would have looked respectable.
+
+Two tests came out of it: the smoke-scale collapse is now asserted deliberately
+(`test_the_degeneracy_guard_is_wired_into_the_comparison_pipeline`, which is also
+the end-to-end proof that the guard is reached by the real pipeline rather than
+only by unit tests), and the table-is-populated test now runs at 576 training rows,
+a scale at which every method emits at least 18 distinct predictions on every
+split.
+
+### 8.10 What was *not* re-run for §8.7, and why
 
 `ablations.csv` and `ablation_statistics.csv` were **not** regenerated. Every
 ablation compares the surrogate against itself with `full` as the baseline; none of

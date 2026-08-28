@@ -72,7 +72,7 @@ which runs, in order:
 Stages that were **not** re-run for the baseline correction in
 `docs/RESULTS.md` §8.7, and why: `ablate` (every ablation compares the surrogate
 against itself, so no tabular model enters it) and `efficiency` (wall-clock and
-setup cost only). See §8.9 of that document.
+setup cost only). See §8.10 of that document.
 
 | stage | command | what it writes |
 |---|---|---|

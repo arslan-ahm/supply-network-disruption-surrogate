@@ -384,14 +384,43 @@ def test_seed_everything_makes_numpy_reproducible():
 # --------------------------------------------------------------------------- #
 
 
+@pytest.fixture(scope="module")
+def compare_cfg(tmp_path_factory):
+    """Config for the full comparison pipeline, at a scale where it is meaningful.
+
+    Bigger than ``tiny_cfg`` on purpose. At 96 training rows the retrieval
+    baseline collapses to a **single** prediction on `shift_type` — every one of
+    the 48 held-out-mechanism queries retrieves the same 8 neighbours — and the
+    degeneracy guard correctly aborts the run. That is a real property of kNN at
+    that sample size, not a bug (at 9,600 training rows it emits 215 distinct
+    predictions on the same split), but it makes the tiny config the wrong place
+    to test that the results table is populated. At 576 training rows every
+    method emits at least 18 distinct predictions on every split.
+
+    The tiny-scale collapse is tested for deliberately, in
+    ``test_the_degeneracy_guard_is_wired_into_the_comparison_pipeline``.
+    """
+    cfg = load_config("configs/smoke.yaml")
+    cfg.dataset.cache_dir = str(tmp_path_factory.mktemp("compare"))
+    cfg.dataset.n_train_networks = 3
+    cfg.dataset.n_shift_networks = 2
+    cfg.dataset.n_large_networks = 1
+    cfg.dataset.scenarios_per_train_network = 64
+    cfg.dataset.scenarios_per_eval_network = 24
+    cfg.train.epochs = 2
+    cfg.model.ensemble = 2
+    cfg.eval.bootstrap = 100
+    return cfg
+
+
 @pytest.mark.slow
-def test_comparison_pipeline_populates_every_table(tiny_cfg, tmp_path, monkeypatch):
+def test_comparison_pipeline_populates_every_table(compare_cfg, tmp_path, monkeypatch):
     """The guard against shipping an empty results table."""
     import sndsur.pipelines as P
 
     monkeypatch.setattr(P, "TABLES", tmp_path / "tables")
-    tiny_cfg.run.out_dir = str(tmp_path / "runs")
-    frames = P.run_comparison(tiny_cfg)
+    compare_cfg.run.out_dir = str(tmp_path / "runs")
+    frames = P.run_comparison(compare_cfg)
 
     methods = frames["methods"]
     assert not methods.empty
@@ -411,6 +440,71 @@ def test_comparison_pipeline_populates_every_table(tiny_cfg, tmp_path, monkeypat
                  "generalisation.csv"):
         f = tmp_path / "tables" / name
         assert f.exists() and f.stat().st_size > 0, name
+
+
+@pytest.mark.slow
+def test_the_trivial_baselines_are_in_the_comparison_table(compare_cfg, tmp_path,
+                                                          monkeypatch):
+    """Both constants must reach the table and the per-item CSV, on every split.
+
+    A results table on a target this zero-inflated is not interpretable without
+    them, and their absence is the single reason the bug in docs/RESULTS.md §8.7
+    survived 43 commits.
+    """
+    import sndsur.pipelines as P
+
+    monkeypatch.setattr(P, "TABLES", tmp_path / "tables")
+    compare_cfg.run.out_dir = str(tmp_path / "runs2")
+    frames = P.run_comparison(compare_cfg)
+    methods, rows = frames["methods"], frames["per_row"]
+
+    for name in ("constant_zero", "constant_train_mean", "tabular_gbt",
+                 "tabular_gbt_l1"):
+        got = set(methods.loc[methods.method == name, "split"])
+        assert got >= set(SPLITS), f"{name} missing splits: {set(SPLITS) - got}"
+        assert f"pred_{name}" in rows.columns
+
+    # The degeneracy census must be recorded for every method, and be right.
+    assert methods["n_unique_predictions"].notna().all()
+    assert (rows["pred_constant_zero"] == 0.0).all()
+    assert rows["pred_constant_train_mean"].nunique() == 1
+    for name in ("constant_zero", "constant_train_mean", "tabular_gbt_l1"):
+        assert (methods.loc[methods.method == name, "degenerate"]).all(), name
+    for name in ("surrogate_ensemble", "tabular_gbt", "tabular_ridge"):
+        assert not (methods.loc[methods.method == name, "degenerate"]).any(), name
+
+    # The identity that makes the L1 collapse undeniable.
+    assert (rows["pred_tabular_gbt_l1"] == rows["pred_constant_zero"]).all()
+    # And the working GBT must not be that function.
+    assert rows["pred_tabular_gbt"].nunique() > 10
+
+    # constant_zero's error on the biting rows *is* the mean biting truth.
+    nz = rows[rows.truth > 0]
+    assert len(nz) > 0
+    assert np.abs(nz.truth - nz.pred_constant_zero).mean() == pytest.approx(
+        float(nz.truth.mean())
+    )
+
+
+@pytest.mark.slow
+def test_the_degeneracy_guard_is_wired_into_the_comparison_pipeline(tiny_cfg, tmp_path,
+                                                                   monkeypatch):
+    """A constant method must abort the real pipeline, not just fail a unit test.
+
+    At the smoke scale (96 training rows) the retrieval baseline emits a single
+    distinct prediction on `shift_type`: the held-out mechanism puts every query
+    far enough from the training set that all 48 of them retrieve the same 8
+    neighbours. That is exactly the situation the guard exists for, and it is used
+    here as a live end-to-end check that the guard is actually reached — a guard
+    that only ever runs in a unit test is not protecting the pipeline.
+    """
+    import sndsur.pipelines as P
+    from sndsur.models.baselines import DegenerateBaselineError
+
+    monkeypatch.setattr(P, "TABLES", tmp_path / "tables")
+    tiny_cfg.run.out_dir = str(tmp_path / "runs3")
+    with pytest.raises(DegenerateBaselineError, match="is constant on split"):
+        P.run_comparison(tiny_cfg)
 
 
 # --------------------------------------------------------------------------- #
