@@ -1,6 +1,6 @@
 ![Python](https://img.shields.io/badge/Python-3.12-blue)
 ![PyTorch](https://img.shields.io/badge/PyTorch-2.13%20CPU-red)
-![Tests](https://img.shields.io/badge/tests-375%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-373%20passing%2C%202%20xfail-brightgreen)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
 # Counterfactual Impact, Not a Risk Score

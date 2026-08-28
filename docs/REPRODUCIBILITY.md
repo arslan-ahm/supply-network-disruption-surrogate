@@ -120,7 +120,7 @@ four cores. Treat these as an order of magnitude, not a benchmark.
 | one training run (10 epochs) | see `results/tables/ablations.csv`, `train_seconds` | varies by a factor of 3 with machine load |
 | exhaustive oracle sweep, 46 candidates | ~1.0 s | `results/tables/criticality_ranking.csv`, `sim_seconds` |
 | fast test suite (366 tests) | ~90 s | `pytest -m "not slow"` |
-| full test suite (375 tests, 9 slow) | ~7 min | a bare `pytest tests`; 2 of the 375 are `xfail(strict)` and are *expected* to fail |
+| full test suite (375 tests, 9 slow) | **138 s** measured | a bare `pytest tests` -> `373 passed, 2 xfailed`; the 2 are `xfail(strict)` and are *expected* to fail |
 
 The per-scenario simulator and surrogate costs that the efficiency claim rests on
 are in `results/tables/efficiency.csv`, measured with 8 warm-up iterations and 25
