@@ -119,7 +119,8 @@ four cores. Treat these as an order of magnitude, not a benchmark.
 | loading + normalising the cached dataset | ~38 s | 83 MB pickle |
 | one training run (10 epochs) | see `results/tables/ablations.csv`, `train_seconds` | varies by a factor of 3 with machine load |
 | exhaustive oracle sweep, 46 candidates | ~1.0 s | `results/tables/criticality_ranking.csv`, `sim_seconds` |
-| fast test suite | ~90 s | `pytest -m "not slow"` |
+| fast test suite (366 tests) | ~90 s | `pytest -m "not slow"` |
+| full test suite (375 tests, 9 slow) | ~7 min | a bare `pytest tests`; 2 of the 375 are `xfail(strict)` and are *expected* to fail |
 
 The per-scenario simulator and surrogate costs that the efficiency claim rests on
 are in `results/tables/efficiency.csv`, measured with 8 warm-up iterations and 25
@@ -231,6 +232,16 @@ make lint        # ruff, must be clean
 
 Markers: `slow` covers anything that trains a model. `pytest -m "not slow"` is
 what CI runs on both Ubuntu and Windows.
+
+**Run the full suite locally, not just `-m "not slow"`.** The previous release was
+only ever checked with `-m "not slow"` and with `python -m pytest`, and both a
+permanently failing slow test and a collection bug survived that way. A bare
+`uv run pytest tests` collects 375 tests: 373 pass and **2 are
+`xfail(strict=True)`** — deliberately recorded expectations that the surrogate
+does not meet, namely that it beats the all-zero constant on pooled MAE at fixture
+scale and at real scale. `strict=True` means those two would *fail the suite* if
+they ever started passing, which is the point: they are claims under measurement,
+not skipped tests.
 
 ---
 
