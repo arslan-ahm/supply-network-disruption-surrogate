@@ -30,15 +30,24 @@ FIGURES = Path("results/figures")
 
 #: One colour per method, held fixed across every figure so a reader does not
 #: have to re-read the legend.
+#:
+#: Every method in `method_comparison.csv` must have an entry. `figure_generalisation`
+#: iterates this dict, so a missing key silently drops that method from the figure —
+#: and the methods most likely to be missing are the newest ones, which here are the
+#: trivial constants whose bars are the most informative in the whole panel.
 COLORS = {
     "surrogate": "#1b4f9c",
     "surrogate_ensemble": "#1b4f9c",
     "surrogate_single": "#5b8dd6",
     "mlp_no_message_passing": "#e07b39",
     "tabular_gbt": "#b02a2a",
+    "tabular_gbt_l1": "#7c1a1a",
     "tabular_ridge": "#d4757a",
     "retrieval_knn": "#7a5c99",
     "topology_heuristic": "#3f8f52",
+    # Greys, because they are reference lines rather than methods anyone proposes.
+    "constant_zero": "#4a4a4a",
+    "constant_train_mean": "#9a9a9a",
     "simulator": "#222222",
 }
 SHIFTS = ("test_id", "shift_topo", "shift_size", "shift_type", "shift_multi")
@@ -186,8 +195,12 @@ def figure_criticality_scatter() -> Path | None:
         return None
     panels = [
         ("surrogate", "Surrogate (learned)"),
-        ("tabular_gbt", "Reference-style feature score"),
+        ("tabular_gbt", "Reference-style feature score (squared error)"),
     ]
+    # The L1 variant is a vertical line of points at a single x value. That is
+    # the whole finding, and it is only obvious in a picture.
+    if "tabular_gbt_l1" in df.columns:
+        panels.append(("tabular_gbt_l1", "Same trees, absolute error (collapsed)"))
     # The heuristic is the method that actually wins this task, so it belongs in
     # the figure. Showing only the two that fail would be a flattering omission.
     if "topology_heuristic" in df.columns:
