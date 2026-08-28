@@ -15,7 +15,7 @@ interpretable; without it a table of differences is just a table of differences.
 |---|---|
 | Counterfactual ranking beats feature-based risk scoring at finding true single points of failure | **holds, decisively** — 36 of 36 adjudicated disagreements go to the counterfactual |
 | Message passing is doing the work | **holds** — the only ablation whose damage clears the noise scale (+4.11x); within-scenario Spearman 0.582 to 0.402 |
-| The surrogate generalises better than nearest-neighbour retrieval under topology shift | **one axis survives** — retrieval wins in-distribution (-3.86x, worse outside noise); the surrogate wins on `shift_size` (+2.50x, survives) and `shift_topo` (+1.41x, suggestive); `shift_type` and `shift_multi` are inside noise |
+| The surrogate generalises better than nearest-neighbour retrieval under topology shift | **one axis survives** — retrieval wins in-distribution (-3.86x, worse outside noise); the surrogate wins on `shift_size` (+2.59x, survives); `shift_topo`, `shift_type` and `shift_multi` do not clear the noise scale |
 | The surrogate predicts impact *magnitude* well | **retracted, and re-retracted for a better reason** — see §8.7. The earlier retraction credited a "reference GBT" that was the constant zero function. With a working GBT the surrogate is worse on MAE on all five evaluation splits (-1.4x to -13.0x the noise scale) *and* worse on MAE restricted to rows where a disruption bit (-1.1x to -6.4x) |
 | The surrogate is better than predicting nothing | **half** — it is beaten on pooled MAE by the **constant zero function** on 6 of 7 splits, because on a 92.5%-zero target zero is the MAE-optimal constant. On MAE restricted to nonzero-truth rows, which a constant cannot win, it beats the all-zero constant on all 7 splits (+2.25x to +6.20x the noise scale) and the train-mean constant on 4 of 5 evaluation splits |
 | The surrogate transfers better than the tabular model to an unseen disruption mechanism | **survives, and was previously unmeasurable** — on `shift_type` its within-scenario Spearman is 0.503 against the GBT's 0.288, **+8.90x** the noise scale. The old table could not report this at all: the broken baseline's rank correlation was undefined |
@@ -23,7 +23,7 @@ interpretable; without it a table of differences is just a table of differences.
 | The surrogate's predictive intervals are calibrated | **fails** — grossly over-covered (0.97 empirical at nominal 0.50) |
 | Uncertainty tracks error | **holds within a split** (error-detection AUROC 0.99), **fails across splits** (mean sigma barely moves under shift) |
 | The deep ensemble contributes epistemic uncertainty | **fails** — the epistemic term is ~4% of total predictive sigma |
-| The surrogate wins on decision quality at a fixed compute budget | **fails at every budget tested** — it ties at 1 s and is beaten from 2 s onward, where exhaustive search reaches recall 1.0 and the surrogate plateaus at 0.433 |
+| The surrogate wins on decision quality at a fixed compute budget | **fails at every budget tested, and does not even tie** — at 1 s the simulator reaches 0.548 against 0.333, and by 5 s exhaustive search is at 1.000 while the surrogate plateaus at 0.450. The crossover point is load-dependent (a previous run tied at 1 s); the ordering is not |
 | The surrogate is faster per scenario | **holds** — 11.4x measured, but break-even is 13,270 screened scenarios (26,167 for the ensemble) once dataset generation is charged |
 | The surrogate's criticality ranking is reproducible | **fails** — its criticality score spread is 0.0008 while its per-row predictions move by up to 1.3e-03 between process launches (parallel scatter reductions), so recall@10 moved from 0.433 to 0.450 with identical weights and a bit-identical oracle. See §8.8 |
 
@@ -627,14 +627,14 @@ Setup cost includes the dataset generation that used the very simulator being re
 
 | budget_s | simulator | surrogate |
 |---|---|---|
-| 0.050 | 0.000 | 0.000 |
-| 0.100 | 0.074 | 0.000 |
-| 0.250 | 0.126 | 0.000 |
-| 0.500 | 0.201 | 0.000 |
-| 1.000 | 0.369 | 0.367 |
-| 2.000 | 0.752 | 0.433 |
-| 5.000 | 1.000 | 0.433 |
-| 10.000 | 1.000 | 0.433 |
+| 0.050 | 0.069 | 0.000 |
+| 0.100 | 0.099 | 0.000 |
+| 0.250 | 0.156 | 0.000 |
+| 0.500 | 0.271 | 0.083 |
+| 1.000 | 0.548 | 0.333 |
+| 2.000 | 0.952 | 0.333 |
+| 5.000 | 1.000 | 0.450 |
+| 10.000 | 1.000 | 0.450 |
 
 Recall@10 of the true critical set, averaged over the evaluated networks.
 
@@ -647,12 +647,20 @@ state and reported as median with IQR.
 
 **The decision-quality experiment does not favour the surrogate at any budget
 tested.** The budget curve is the honest test and the surrogate loses it outright:
-below its own fixed cost it returns nothing, at 1 s it ties the simulator
-(0.367 against 0.369), and from 2 s onward exhaustive search pulls away to recall
-1.0 while the surrogate plateaus at 0.433 because its own ranking quality caps it.
-The reason is arithmetic rather than modelling — a 46-candidate sweep costs the
-oracle about 2.3 s, so at this network size there is simply no regime in which the
-exact answer is unaffordable. A surrogate for this task earns its keep only when
+below its own fixed cost it returns nothing, at 1 s the simulator is already ahead
+(0.548 against 0.333), by 2 s it is at 0.952, and by 5 s exhaustive search is
+exhaustive at 1.000 while the surrogate plateaus at 0.450 because its own ranking
+quality caps it. The reason is arithmetic rather than modelling — a 46-candidate
+sweep costs the oracle about 1.8 s, so at this network size there is simply no
+regime in which the exact answer is unaffordable.
+
+**This curve is the least stable table in this document, and the instability is
+one-sided.** It is built from measured wall-clock, and §8.4 records that the same
+batch timed at 600 ms and 2870 ms minutes apart on this shared machine. The
+previous release's run had the oracle sweep at 2.62 s and the two methods tying at
+1 s (0.367 against 0.369); this run had it at 1.80 s and the simulator clearly
+ahead. The *ordering* — the surrogate never wins at any budget — held in both runs,
+and it is the only thing claimed from this table. A surrogate for this task earns its keep only when
 the candidate set is large enough that the oracle is out of reach, and this
 repository does not demonstrate such a regime. That is a limitation of the
 experiment's scale as much as of the model, and it is stated rather than buried.

@@ -85,14 +85,27 @@ The speed factor is real; the fixed-compute experiment is one the surrogate lose
 
 > **Result, up front — and the flattering half is not the whole story.**
 >
-> **The argument holds, decisively.** Across six unseen networks there are 36
-> candidate pairs that the reference-style feature score and the counterfactual
-> ranking order oppositely. The simulator resolves **36 of 36 in favour of the
-> counterfactual**. The nodes the feature score prefers have a mean *and maximum*
-> true service loss of **exactly 0.0000**; the nodes it passes over average
-> **0.4288**. In every one of the six networks the node ranked 44th–46th of 46 by
-> features is the node the counterfactual puts 1st–3rd, and it is the worst real
-> single point of failure in that network.
+> **The argument holds, and it holds against a baseline that works.** Across six
+> unseen networks there are 36 candidate pairs that the reference-style feature
+> score and the counterfactual ranking order oppositely. The simulator resolves
+> **36 of 36 in favour of the counterfactual**. The nodes the feature score
+> prefers average a true service loss of **0.000926** (maximum 0.033346); the
+> nodes it passes over average **0.426345** (minimum 0.228754). In `shift_4`
+> every one of the feature score's top five candidates has a true loss of
+> **exactly 0.0000**, while the node it ranks **46th of 46** has the largest true
+> loss in the network at **0.7430**.
+>
+> **Retracted from the previous release:** "in every one of the six networks the
+> node ranked 44th–46th of 46 by features is the worst real single point of
+> failure". That was an artefact of the constant baseline described above — with
+> a constant score, `argsort` returns node-id order, so "ranked 46th" meant
+> "highest node id". Against a working feature model the worst-true node's
+> feature rank is **45, 20, 4, 41, 46 and 25** of 46 across the six networks
+> (`results/tables/criticality_detail.csv`). It lands in the bottom third in
+> three of six, and in `shift_2` the feature score actually ranks it **4th** —
+> i.e. gets it nearly right. The feature approach is a poor criticality ranker on
+> average (recall@10 0.183, regret 0.867), not a uniformly inverted one, and the
+> stronger version of that claim does not survive.
 >
 > **The learned model is not what wins it.** A hand-weighted composite of six
 > topology signals beats the trained graph network on every criticality metric
@@ -120,9 +133,14 @@ The speed factor is real; the fixed-compute experiment is one the surrogate lose
 > replaced are charged, break-even is **13,270 screened scenarios** for a single
 > model and **26,167** for the shipped ensemble — roughly 290 and 570 full
 > 46-candidate network sweeps. And in the fixed-compute experiment the surrogate
-> **never wins at any budget**: it ties the simulator at 1 s (0.367 against 0.369)
-> and is beaten from 2 s onward, where exhaustive search reaches recall 1.0 and
-> the surrogate plateaus at 0.433.
+> **never wins at any budget, and never even ties**: at 1 s the simulator reaches
+> recall 0.548 against the surrogate's 0.333, by 2 s it is at 0.952, and by 5 s it
+> is exhaustive at 1.000 while the surrogate plateaus at 0.450. (The previous
+> release recorded a tie at 1 s, 0.367 against 0.369. This curve is built from
+> *measured* simulator throughput, which varies by up to 3x with machine load —
+> the oracle sweep took 1.80 s this run against 2.62 s before — so the crossover
+> point is not stable. The conclusion that the surrogate never wins is stable
+> across both runs.)
 
 ---
 
@@ -145,9 +163,11 @@ thing everyone gestures at:
 > **Sole-source reach** of a node: the number of demand points reachable from it
 > along paths where *every* group traversed is sole-sourced.
 
-The headline disagreement is exactly this quantity doing its work. The node the
-feature model ranks last is a distribution centre with modest throughput and
-middling degree — and sole-source reach 3.
+The headline disagreement is exactly this quantity doing its work. In `shift_4`
+the node the feature model ranks **last of 46** is a tier-3 distribution point
+with modest throughput (63.5) and middling degree — and sole-source reach 3. It
+is the worst real single point of failure in that network, at a true service loss
+of 0.7430.
 
 ## Why a surrogate at all, and where that argument breaks
 
@@ -160,19 +180,22 @@ approximately — which finds the true top-10 more reliably?
 
 | compute budget (s) | simulator recall@k | surrogate recall@k |
 |---|---|---|
-| 0.05 | 0.000 | 0.000 |
-| 0.1 | 0.074 | 0.000 |
-| 0.25 | 0.126 | 0.000 |
-| 0.5 | 0.201 | 0.000 |
-| 1 | 0.369 | 0.367 |
-| 2 | 0.752 | 0.433 |
-| 5 | 1.000 | 0.433 |
-| 10 | 1.000 | 0.433 |
+| 0.05 | 0.069 | 0.000 |
+| 0.1 | 0.099 | 0.000 |
+| 0.25 | 0.156 | 0.000 |
+| 0.5 | 0.271 | 0.083 |
+| 1 | 0.548 | 0.333 |
+| 2 | 0.952 | 0.333 |
+| 5 | 1.000 | 0.450 |
+| 10 | 1.000 | 0.450 |
 
 **The surrogate does not win at any budget.** A 46-candidate sweep costs the
-oracle about 2.3 s, so there is no regime at this network size where the exact
+oracle about 1.8 s, so there is no regime at this network size where the exact
 answer is unaffordable — and below the surrogate's own fixed cost it returns
-nothing at all. **A surrogate for this task earns its keep only when the candidate
+nothing at all. This curve is built from *measured* wall-clock, which on this
+shared machine varies by up to 3x with load, so the exact numbers move between
+runs (a previous run had the two tying at 1 s, 0.367 against 0.369); the ordering
+does not. **A surrogate for this task earns its keep only when the candidate
 set is large enough that the oracle is genuinely out of reach, and this repository
 does not demonstrate such a regime.** That is the single most important limitation
 here, and it is a limitation of the experiment's scale as much as of the model.
@@ -416,14 +439,14 @@ Setup cost includes the dataset generation that used the very simulator being re
 
 | budget_s | simulator | surrogate |
 |---|---|---|
-| 0.050 | 0.000 | 0.000 |
-| 0.100 | 0.074 | 0.000 |
-| 0.250 | 0.126 | 0.000 |
-| 0.500 | 0.201 | 0.000 |
-| 1.000 | 0.369 | 0.367 |
-| 2.000 | 0.752 | 0.433 |
-| 5.000 | 1.000 | 0.433 |
-| 10.000 | 1.000 | 0.433 |
+| 0.050 | 0.069 | 0.000 |
+| 0.100 | 0.099 | 0.000 |
+| 0.250 | 0.156 | 0.000 |
+| 0.500 | 0.271 | 0.083 |
+| 1.000 | 0.548 | 0.333 |
+| 2.000 | 0.952 | 0.333 |
+| 5.000 | 1.000 | 0.450 |
+| 10.000 | 1.000 | 0.450 |
 
 Recall@10 of the true critical set, averaged over the evaluated networks.
 
