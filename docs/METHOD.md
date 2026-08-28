@@ -384,12 +384,23 @@ inference behaviour stay identical.
 ### 6.7 Loss design
 
 **L1, not L2, on impact.** The label distribution is a large mass at exactly zero
-(most disruptions are absorbed — 93.5% of training *rows*, from `dataset.csv`) with a
-long right tail.
+(most disruptions are absorbed — 93.5% of training *rows* at the `<= 1e-4`
+threshold in `dataset.csv`, and 92.48% of all evaluated rows at exact equality,
+from `per_item.csv`) with a long right tail.
 Squared error puts nearly all its gradient on the tail; the first version trained
 that way had a decent MAE on big events and ranked the bottom two-thirds of nodes
 at random, which is useless, because separating small from zero *is* the screening
 job.
+
+**This choice is defensible for the network and indefensible for a tree, and §7
+records what happened when it was copied across.** L1 on a 92.5%-zero target pulls
+the network's predictions toward zero — visible as the under-prediction of the tail
+in `docs/RESULTS.md` §5 — but it does not stop it learning, because every gradient
+step moves a shared function that must also account for the nonzero rows. A
+regression tree has no shared function to move: each leaf takes the exact L1
+minimiser of its own samples, which is 0. Transplanting "use L1 to match the
+surrogate" into the boosted-tree baseline therefore did not make the comparison
+fairer, it deleted the baseline.
 
 **Timing terms are divided by the horizon.** Timing targets are in periods (0–30)
 while impact is a fraction (0–1). Left unscaled, the timing L1 came out around 12
@@ -432,19 +443,48 @@ with "less data hurts".
 
 All four are run, on the same rows, in the same order, with the same targets.
 
-**`tabular_gbt` / `tabular_ridge` — the reference approach.** A flat feature row
-per (disrupted node, demand point): attributes of the disrupted node, attributes
-of the demand point, and eight network-level summary statistics. **No relational
-term connects the two.** That omission is the thing under test.
+**`tabular_gbt` / `tabular_gbt_l1` / `tabular_ridge` — the reference approach.** A
+flat feature row per (disrupted node, demand point): attributes of the disrupted
+node, attributes of the demand point, and eight network-level summary statistics.
+**No relational term connects the two.** That omission is the thing under test.
 
 It is treated generously on purpose: it receives three graph-derived columns
 (downstream reach, sole-source reach, cumulative lead time to demand) that a
-per-supplier risk model would not normally have, and the GBT is trained with
-absolute error to match the surrogate's objective — otherwise the comparison would
-be about loss functions rather than representations. Its structural limitation
+per-supplier risk model would not normally have. Its structural limitation
 remains: for a multi-point scenario it can only describe one "primary" disrupted
 node, because a single-node risk score has no way to represent two simultaneous
 failures.
+
+**The GBT is trained with squared error, and the reason is a corrected mistake.**
+The first version used `absolute_error`, chosen so the baseline would optimise the
+same thing as the surrogate — otherwise the comparison is about loss functions
+rather than about representations. That argument is right in general and wrong
+here. On a target that is 92.5% exact zeros, L1's minimising constant is the
+median, the median is exactly 0, and a boosted-tree regressor therefore
+initialises at 0, finds every leaf's L1-optimal value to be 0, early-stops after
+10 rounds and emits a single distinct prediction. It did: exactly 0.000000 for all
+20,624 rows of the shipped comparison. The variant is kept as `tabular_gbt_l1`,
+labelled degenerate by construction, and reported next to the working one, because
+the contrast is a cleaner illustration of the zero-inflation problem than any
+prose. See `docs/RESULTS.md` §8.7.
+
+The asymmetry with §6.7 is the part worth understanding. The surrogate uses L1 on
+the same target and does *not* collapse — it merely under-predicts the tail
+(§5). The difference is where the minimisation happens. Gradient descent on a
+shared parameter vector takes a step whose direction is the sign of the residual
+but whose effect is spread across a function that must also fit the nonzero rows;
+a regression tree assigns each leaf the **exact** minimiser of the loss over the
+samples that fall in it, and on this target that minimiser is 0 for essentially
+every leaf. Same objective, same data, categorically different failure.
+
+**Both trivial constants are baselines.** `constant_zero` (emit 0.0) and
+`constant_train_mean` (emit 0.012783) are run and reported on every split. On a
+target this zero-inflated they are not padding: `constant_zero` is the MAE-optimal
+predictor, so no MAE in this repository is interpretable without it, and its
+absence is the reason the collapse above went unnoticed. Every method's
+distinct-prediction count is recorded, and a method that is not declared
+constant-by-design and emits fewer than two distinct values raises
+`DegenerateBaselineError` rather than entering a results table.
 
 **`mlp_no_message_passing`.** The surrogate with `layers = 0`: identical features,
 loss, training loop and heads; no node ever sees a neighbour. The node-only trunk
