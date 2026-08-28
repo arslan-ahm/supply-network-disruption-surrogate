@@ -102,6 +102,32 @@ def test_fidelity_report_carries_the_nonzero_columns():
     assert rep["mae"] == pytest.approx(0.05)
 
 
+def test_compare_reports_the_sign_direction_as_well_as_the_magnitude():
+    """The two can disagree, and the CSV must let a reader see it.
+
+    Constructed so that method ``a`` is better on 9 of 10 rows by a hair and much
+    worse on the tenth: the sign summary favours ``a``, the mean favours ``b``.
+    That is the shape of a zero-inflated target, where a constant predictor is
+    exactly right on almost every row.
+    """
+    a = np.array([0.0] * 9 + [1.0])
+    b = np.array([0.01] * 9 + [0.0])
+    c = ST.compare(a, b, "a", "b", n_resamples=200)
+    assert c.frac_rows_a_worse == pytest.approx(0.1)
+    assert c.median_difference < 0.0  # a is better on the typical row
+    assert c.difference.estimate > 0.0  # a is worse on the mean
+    d = c.to_dict()
+    assert "frac_rows_a_worse" in d and "median_difference" in d
+
+
+def test_compare_sign_columns_are_nan_free_on_a_normal_comparison():
+    rng = np.random.default_rng(0)
+    a, b = rng.random(200), rng.random(200)
+    c = ST.compare(a, b, n_resamples=200)
+    assert 0.0 <= c.frac_rows_a_worse <= 1.0
+    assert np.isfinite(c.median_difference)
+
+
 def test_metrics_ignore_non_finite_entries():
     p = np.array([1.0, np.nan, 3.0])
     t = np.array([1.0, 5.0, 4.0])

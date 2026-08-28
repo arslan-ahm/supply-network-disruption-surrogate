@@ -60,6 +60,16 @@ class Comparison:
     #: Paired Cohen's d — the mean difference in units of its own SD.
     effect_size: float
     n: int
+    #: Median paired difference, and the fraction of rows on which ``a`` is
+    #: worse. Both are here because on a zero-inflated target the sign-based
+    #: test and the magnitude-based interval can point in **opposite
+    #: directions**, and reporting only the p-value hides that. Wilcoxon counts
+    #: rows; the bootstrap interval weighs them. Where 92.5% of rows have a
+    #: target of exactly 0, a predictor that emits 0 is exactly right on almost
+    #: every row and wrong only on the few that matter, so it can win the
+    #: row-counting test while losing the magnitude one by a wide margin.
+    median_difference: float = float("nan")
+    frac_rows_a_worse: float = float("nan")
     #: Set by :func:`holm_bonferroni`; ``None`` until corrected.
     p_adjusted: float | None = None
 
@@ -88,6 +98,8 @@ class Comparison:
             "p_value": self.p_value,
             "p_adjusted": self.p_adjusted,
             "effect_size": self.effect_size,
+            "median_difference": self.median_difference,
+            "frac_rows_a_worse": self.frac_rows_a_worse,
             "n": self.n,
             "significant": self.significant,
         }
@@ -156,6 +168,13 @@ def compare(
 ) -> Comparison:
     """Full paired comparison of two methods on the same rows.
 
+    The returned record carries **both** a magnitude summary (mean difference
+    with a paired bootstrap interval) and a sign summary (``median_difference``,
+    ``frac_rows_a_worse``) next to the Wilcoxon p-value, because on this
+    project's target the two can disagree in direction. Reading the p-value
+    without the sign columns is how a row-counting result gets mistaken for a
+    magnitude result.
+
     Returns:
         A :class:`Comparison`. The p-value is NaN when every paired difference is
         exactly zero, where the signed-rank test is undefined — which is not the
@@ -180,6 +199,8 @@ def compare(
         difference=paired_bootstrap_difference(x, y, n_resamples, seed=seed),
         p_value=p,
         effect_size=effect,
+        median_difference=float(np.median(diff)) if diff.size else float("nan"),
+        frac_rows_a_worse=float((diff > 0).mean()) if diff.size else float("nan"),
         n=int(diff.size),
     )
 
