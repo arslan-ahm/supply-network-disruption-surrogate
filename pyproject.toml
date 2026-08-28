@@ -50,6 +50,7 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 addopts = "-q --strict-markers"
 markers = ["slow: marks tests that take more than a few seconds"]
 filterwarnings = ["ignore::DeprecationWarning"]
