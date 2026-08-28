@@ -14,9 +14,13 @@ import torch
 
 from sndsur.data.features import N_EDGE_FEATURES, N_NODE_FEATURES
 from sndsur.models.baselines import (
+    ConstantPredictor,
+    DegenerateBaselineError,
     ScenarioRetrieval,
     TabularRiskModel,
     TopologyHeuristic,
+    prediction_diversity,
+    require_non_degenerate,
 )
 from sndsur.models.layers import MessagePassingLayer, mlp, scatter_max, scatter_mean
 from sndsur.models.surrogate import SupplyGraphSurrogate
@@ -321,6 +325,146 @@ def test_dropout_is_inactive_in_eval_mode():
     nf, ei, ef, dr = make_graph()
     with torch.no_grad():
         assert torch.allclose(m(nf, ei, ef, dr).impact, m(nf, ei, ef, dr).impact)
+
+
+# --------------------------------------------------------------------------- #
+# The degeneracy guard
+#
+# These exist because this repository shipped a comparison table whose best-MAE
+# entry was the constant zero function, and not one metric in the table revealed
+# it. Counting unique predictions is the detector; these tests are the detector's
+# tests.
+# --------------------------------------------------------------------------- #
+
+
+def zero_inflated(n=4000, zero_frac=0.925, seed=0):
+    """Synthetic data with this project's zero-mass and a learnable signal.
+
+    The signal is in feature 0 and is only present on the nonzero rows, exactly
+    like the real target: most disruptions are absorbed, and when one is not, its
+    size depends on the features.
+    """
+    rng = np.random.default_rng(seed)
+    x = rng.normal(size=(n, 8))
+    y = np.zeros(n)
+    k = int(round((1.0 - zero_frac) * n))
+    idx = rng.choice(n, k, replace=False)
+    y[idx] = np.clip(0.2 + 0.1 * x[idx, 0], 0.0, 1.0)
+    return x, y
+
+
+def test_prediction_diversity_counts_distinct_values():
+    d = prediction_diversity(np.array([0.0, 0.0, 0.0]))
+    assert d["n_unique_predictions"] == 1
+    assert d["degenerate"] is True
+    assert d["pred_range"] == pytest.approx(0.0)
+    d = prediction_diversity(np.array([0.0, 1.0, 1.0, 2.0]))
+    assert d["n_unique_predictions"] == 3
+    assert d["degenerate"] is False
+    assert d["pred_range"] == pytest.approx(2.0)
+
+
+def test_prediction_diversity_ignores_float_noise():
+    """1e-15 of jitter is not two models' worth of information."""
+    p = np.full(50, 0.25) + np.linspace(0, 1e-15, 50)
+    assert prediction_diversity(p)["degenerate"] is True
+
+
+def test_prediction_diversity_skips_nan():
+    d = prediction_diversity(np.array([np.nan, 1.0, 2.0]))
+    assert d["n_unique_predictions"] == 2
+
+
+def test_require_non_degenerate_raises_on_a_constant():
+    with pytest.raises(DegenerateBaselineError, match="constant function"):
+        require_non_degenerate("pretend_model", np.zeros(1000))
+
+
+def test_require_non_degenerate_passes_a_real_predictor():
+    d = require_non_degenerate("ok", np.linspace(0.0, 1.0, 20))
+    assert d["n_unique_predictions"] == 20
+
+
+def test_gbt_with_absolute_error_collapses_on_a_zero_inflated_target():
+    """The bug, reproduced as a test rather than as a paragraph.
+
+    L1's optimal constant is the median; the median of a 92.5%-zero target is 0;
+    so the boosting initialisation is 0 and every leaf's L1-optimal value is 0.
+    The model emits exactly one distinct prediction and the guard must catch it.
+    """
+    x, y = zero_inflated()
+    m = TabularRiskModel("gbt_l1", 0).fit(x, y)
+    p = m.predict(x)
+    assert m.degenerate_by_construction
+    assert prediction_diversity(p)["n_unique_predictions"] == 1
+    assert float(np.abs(p).max()) == 0.0
+    # And its MAE is indistinguishable from predicting nothing at all.
+    assert np.abs(p - y).mean() == pytest.approx(np.abs(y).mean())
+    with pytest.raises(DegenerateBaselineError):
+        require_non_degenerate("tabular_gbt_l1", p)
+
+
+def test_gbt_with_squared_error_actually_fits_the_same_target():
+    """The control: same data, same trees, a loss that is not minimised by 0."""
+    x, y = zero_inflated()
+    m = TabularRiskModel("gbt", 0).fit(x, y)
+    p = m.predict(x)
+    assert not m.degenerate_by_construction
+    assert prediction_diversity(p)["n_unique_predictions"] > 100
+    require_non_degenerate("tabular_gbt", p)
+    # It beats the all-zero constant where the truth is nonzero, which is the
+    # thing the L1 variant cannot do at all.
+    nz = y > 0
+    assert np.abs(p[nz] - y[nz]).mean() < np.abs(y[nz]).mean()
+
+
+def test_the_two_gbt_variants_use_the_losses_they_claim_to():
+    x, y = zero_inflated(n=500)
+    assert TabularRiskModel("gbt").fit(x, y).model.loss == "squared_error"
+    assert TabularRiskModel("gbt_l1").fit(x, y).model.loss == "absolute_error"
+
+
+# --------------------------------------------------------------------------- #
+# Trivial baselines
+# --------------------------------------------------------------------------- #
+
+
+def test_constant_zero_predicts_exactly_zero():
+    x, y = zero_inflated(n=200)
+    m = ConstantPredictor("zero").fit(x, y)
+    p = m.predict(x)
+    assert p.shape == (200,)
+    assert np.all(p == 0.0)
+    assert m.degenerate_by_construction
+
+
+def test_constant_train_mean_predicts_the_training_mean():
+    x, y = zero_inflated(n=200)
+    m = ConstantPredictor("train_mean").fit(x, y)
+    assert m.value == pytest.approx(y.mean())
+    assert np.all(m.predict(x[:7]) == pytest.approx(y.mean()))
+
+
+def test_constant_zero_is_the_mae_optimal_constant_on_this_target():
+    """Why the zero baseline is the one that matters, stated as an assertion."""
+    _, y = zero_inflated(n=5000)
+    zero_mae = np.abs(y - 0.0).mean()
+    mean_mae = np.abs(y - y.mean()).mean()
+    assert zero_mae < mean_mae
+    # No constant does better on MAE than the median, which here is exactly 0.
+    assert np.median(y) == 0.0
+    for c in (0.001, 0.01, 0.05, 0.2):
+        assert np.abs(y - c).mean() >= zero_mae
+
+
+def test_constant_predictors_reject_an_unknown_kind():
+    with pytest.raises(ValueError, match="unknown constant kind"):
+        ConstantPredictor("median")
+
+
+def test_constant_predictor_used_before_fit_raises():
+    with pytest.raises(RuntimeError, match="before fit"):
+        ConstantPredictor("zero").predict(np.zeros((3, 2)))
 
 
 # --------------------------------------------------------------------------- #

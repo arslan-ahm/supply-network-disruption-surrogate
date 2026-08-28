@@ -33,6 +33,15 @@ with contextlib.suppress(AttributeError, ValueError):
 
 TABLES = Path("results/tables")
 SHIFTS = ("test_id", "shift_topo", "shift_size", "shift_type", "shift_multi")
+#: Every split, in dataset order. The trivial-baseline table uses all seven,
+#: because "the surrogate loses to the constant zero on 6 of 7 splits" is a claim
+#: about all of them and quoting only the five evaluation splits would soften it.
+ALL_SPLITS = ("train", "val", "test_id", "shift_topo", "shift_size", "shift_type",
+              "shift_multi")
+#: Print order for method tables.
+METHOD_ORDER = ["surrogate_ensemble", "surrogate_single", "mlp_no_message_passing",
+                "tabular_gbt", "tabular_gbt_l1", "tabular_ridge", "retrieval_knn",
+                "topology_heuristic", "constant_zero", "constant_train_mean"]
 
 
 def read(name: str) -> pd.DataFrame | None:
@@ -91,20 +100,29 @@ def section_methods() -> None:
     print("### Method comparison, in-distribution "
           "(`results/tables/method_comparison.csv`, split `test_id`)\n")
     sub = m[m.split == "test_id"].copy()
-    order = ["surrogate_ensemble", "surrogate_single", "mlp_no_message_passing",
-             "tabular_gbt", "tabular_ridge", "retrieval_knn", "topology_heuristic"]
-    sub["o"] = sub.method.map({k: i for i, k in enumerate(order)}).fillna(99)
+    sub["o"] = sub.method.map({k: i for i, k in enumerate(METHOD_ORDER)}).fillna(99)
     sub = sub.sort_values("o")
-    print(md_table(
-        sub,
-        ["method", "mae", "rmse", "bias", "spearman_pooled",
-         "spearman_within_scenario", "spearman_groups", "top1_agreement",
-         "top1_groups", "n"],
-        ["method", "MAE (low=good)", "RMSE (low=good)", "bias",
-         "Spearman pooled (high=good)", "Spearman within-scenario (high=good)",
-         "scenarios contributing", "top-1 agree (high=good)",
-         "scenarios contributing", "rows"],
-    ))
+    spec = [
+        ("method", "method"),
+        ("mae", "MAE (low=good)"),
+        ("mae_nonzero_truth", "MAE on nonzero truth (low=good)"),
+        ("rmse", "RMSE (low=good)"),
+        ("bias", "bias"),
+        ("spearman_pooled", "Spearman pooled (high=good)"),
+        ("spearman_within_scenario", "Spearman within-scenario (high=good)"),
+        ("spearman_groups", "scenarios contributing"),
+        ("top1_agreement", "top-1 agree (high=good)"),
+        ("top1_groups", "scenarios contributing"),
+        ("n_unique_predictions", "unique predictions"),
+        ("n", "rows"),
+    ]
+    spec = [(c, h) for c, h in spec if c in sub.columns]
+    print(md_table(sub, [c for c, _ in spec], [h for _, h in spec]))
+    print()
+    print("`unique predictions` is the degeneracy check: a method with 1 unique "
+          "prediction is a constant function and has no ranking at all, whatever "
+          "its MAE says. `MAE on nonzero truth` is the column a constant cannot "
+          "win.")
     print()
 
 
@@ -112,9 +130,13 @@ def section_shift() -> None:
     m = read("method_comparison.csv")
     if m is None:
         return
-    for metric, label, nd in (("mae", "MAE (lower better)", 4),
-                              ("spearman_within_scenario",
-                               "within-scenario Spearman (higher better)", 4)):
+    for metric, label, nd in (
+        ("mae", "MAE (lower better)", 4),
+        ("mae_nonzero_truth", "MAE on nonzero-truth rows only (lower better)", 4),
+        ("spearman_within_scenario", "within-scenario Spearman (higher better)", 4),
+    ):
+        if metric not in m.columns:
+            continue
         print(f"### {label} across every split "
               f"(`results/tables/method_comparison.csv`)\n")
         piv = m.pivot_table(index="method", columns="split", values=metric)
@@ -122,6 +144,53 @@ def section_shift() -> None:
         rows = piv.reset_index()
         print(md_table(rows, list(rows.columns), nd=nd))
         print()
+
+
+def section_trivial() -> None:
+    """The trivial baselines, on every split, next to the learned model.
+
+    This is the table whose absence let a constant be reported as the best model
+    in this repository. It is printed on all seven splits rather than the five
+    evaluation ones because the claim it supports is about all seven.
+    """
+    m = read("method_comparison.csv")
+    if m is None or "constant_zero" not in set(m.method):
+        return
+    keep = ["constant_zero", "constant_train_mean", "surrogate_single",
+            "surrogate_ensemble", "tabular_gbt", "tabular_gbt_l1"]
+    for metric, label in (
+        ("mae", "MAE (lower better) — the metric a constant can win"),
+        ("mae_nonzero_truth",
+         "MAE on nonzero-truth rows (lower better) — the metric a constant cannot win"),
+    ):
+        if metric not in m.columns:
+            continue
+        print(f"### {label}, every split "
+              f"(`results/tables/method_comparison.csv`)\n")
+        piv = m.pivot_table(index="method", columns="split", values=metric)
+        piv = piv.reindex([k for k in keep if k in piv.index])
+        piv = piv[[c for c in ALL_SPLITS if c in piv.columns]]
+        rows = piv.reset_index()
+        print(md_table(rows, list(rows.columns), nd=6))
+        print()
+    piv = m.pivot_table(index="method", columns="split", values="mae")
+    if "constant_zero" in piv.index and "surrogate_single" in piv.index:
+        cols = [c for c in ALL_SPLITS if c in piv.columns]
+        lost = [c for c in cols if piv.loc["surrogate_single", c] > piv.loc["constant_zero", c]]
+        print(f"`surrogate_single` has a **worse** MAE than `constant_zero` on "
+              f"{len(lost)} of {len(cols)} splits ({', '.join(lost)}).\n")
+        if "constant_train_mean" in piv.index:
+            won = [c for c in cols
+                   if piv.loc["surrogate_single", c] < piv.loc["constant_train_mean", c]]
+            print(f"It beats `constant_train_mean` on {len(won)} of {len(cols)} "
+                  f"splits ({', '.join(won)}).\n")
+    if "n_unique_predictions" in m.columns:
+        deg = m[m.n_unique_predictions < 2]
+        if len(deg):
+            names = sorted(set(deg.method))
+            print("Methods emitting a single distinct prediction on at least one "
+                  "split (constant functions, not models): "
+                  + ", ".join(f"`{x}`" for x in names) + ".\n")
 
 
 def section_seeds() -> None:
@@ -190,16 +259,20 @@ def section_verdicts() -> None:
     print("### Every claimed gain against the run-to-run noise scale\n")
     print("A difference between two single runs is inside noise unless it exceeds "
           "`sqrt(2) * sd` for that metric, from `seed_variance.csv`.\n")
-    print("The surrogate is compared against **two** baselines: the reference-style "
-          "feature model it is meant to replace, and whichever baseline is actually "
-          "strongest on that split. Comparing only against the reference would "
-          "flatter it.\n")
+    print("The surrogate is compared against **four** references: the reference-style "
+          "feature model it is meant to replace, whichever baseline is actually "
+          "strongest on that split, and both trivial constants. Comparing only "
+          "against the reference would flatter it, and on a 92.5%-zero target "
+          "omitting the constants hides the only comparison that establishes "
+          "whether anything was learned at all.\n")
     rows = []
     for split in SHIFTS:
         sub = m[m.split == split].set_index("method")
         if "surrogate_ensemble" not in sub.index:
             continue
-        for metric, better_is_lower in (("mae", True), ("spearman_within_scenario", False)):
+        for metric, better_is_lower in (("mae", True),
+                                        ("mae_nonzero_truth", True),
+                                        ("spearman_within_scenario", False)):
             if metric not in sub.columns:
                 continue
             ours = float(sub.loc["surrogate_ensemble", metric])
@@ -213,9 +286,15 @@ def section_verdicts() -> None:
             }
             if not others:
                 continue
-            best = (min if better_is_lower else max)(others, key=others.get)
+            # A constant is not eligible to be the "best baseline": calling the
+            # all-zero function the strongest baseline would be true on MAE and
+            # completely uninformative. It gets its own explicit rows instead.
+            ranked = {k: v for k, v in others.items() if not k.startswith("constant_")}
+            best = (min if better_is_lower else max)(ranked or others, key=others.get)
             for label, ref_name in (("vs reference", "tabular_gbt"),
-                                    ("vs best baseline", best)):
+                                    ("vs best baseline", best),
+                                    ("vs constant zero", "constant_zero"),
+                                    ("vs constant train-mean", "constant_train_mean")):
                 if ref_name not in others:
                     continue
                 ref = others[ref_name]
@@ -289,15 +368,18 @@ def section_criticality() -> None:
     print()
     if "score_std" in c.columns and (c.score_std < 1e-9).any():
         dead = ", ".join(f"`{m}`" for m in c.loc[c.score_std < 1e-9, "method"])
-        print(f"**{dead} produced a constant score for every candidate.** Its "
-              "recall is therefore 0 for a reason that has nothing to do with "
-              "topology: on a target that is ~94% exact zeros, the constant that "
-              "minimises absolute error is 0, and every probe shares the same "
-              "standardised disruption so the only varying inputs are the "
-              "disrupted node's own attributes. This is a real property of the "
-              "reference approach on this task, not a tuning failure - but the "
-              "linear variant is reported alongside it precisely so the reader "
-              "can see whether the collapse is specific to the boosted trees.\n")
+        print(f"**{dead} produced a constant score for every candidate**, i.e. "
+              "one distinct score across all candidates in all networks. That is "
+              "not a fact about tabular features or about topology; it is a fact "
+              "about an L1 objective on a 92.5%-zero target, where the "
+              "loss-minimising constant is the median and the median is exactly "
+              "0. Its recall@k is therefore whatever a tie-broken arbitrary "
+              "ordering scores. It is reported here, labelled, because this "
+              "repository previously shipped it *as* `tabular_gbt` - the "
+              "reference model the surrogate was said to lose to - and the "
+              "collapse was invisible in every metric except this one. The "
+              "squared-error variant next to it is the boosted-tree reference "
+              "that actually ranks.\n")
     d = read("disagreements.csv")
     if d is not None and len(d):
         print("### Where the feature score and the counterfactual disagree "
@@ -395,6 +477,7 @@ def section_efficiency() -> None:
 SECTIONS = {
     "dataset": section_dataset,
     "methods": section_methods,
+    "trivial": section_trivial,
     "shift": section_shift,
     "seeds": section_seeds,
     "verdicts": section_verdicts,

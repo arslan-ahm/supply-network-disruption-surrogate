@@ -62,9 +62,12 @@ from sndsur.metrics import fidelity as FID
 from sndsur.metrics import ranking as RANK
 from sndsur.metrics import stats as ST
 from sndsur.models.baselines import (
+    ConstantPredictor,
+    DegenerateBaselineError,
     ScenarioRetrieval,
     TabularRiskModel,
     TopologyHeuristic,
+    prediction_diversity,
     rows_from_split,
 )
 from sndsur.utils.bench import benchmark, break_even_scenarios, budget_curve
@@ -74,6 +77,48 @@ from sndsur.utils.seed import limit_threads, seed_everything
 
 LOG = get_logger()
 TABLES = Path("results/tables")
+
+#: Methods that are constant *by design* and are therefore allowed into the
+#: comparison table with ``degenerate = True`` recorded against them, rather than
+#: raising. Everything else must emit at least two distinct predictions on every
+#: split or the run fails: see :func:`_diversity_row`.
+#:
+#: ``constant_zero`` and ``constant_train_mean`` are the trivial reference points
+#: a 92.5%-zero target requires. ``tabular_gbt_l1`` is the boosted-tree reference
+#: under absolute error, whose collapse to a single value is the bug this
+#: repository shipped and is kept visible on purpose.
+DEGENERATE_BY_DESIGN = frozenset({
+    "constant_zero",
+    "constant_train_mean",
+    "tabular_gbt_l1",
+})
+
+
+def _diversity_row(method: str, pred: np.ndarray, split: str) -> dict:
+    """Unique-prediction census for one method on one split.
+
+    A constant predictor passes almost every check in this repository: MAE
+    rewards it on a zero-inflated target, Spearman is undefined and renders as
+    ``not measured``, and top-1 agreement scores whatever index 0 happens to be
+    worth. Counting distinct predictions is the only reliable detector, so it is
+    recorded for every method on every split and enforced for every method not
+    declared constant by design.
+
+    Raises:
+        DegenerateBaselineError: if an undeclared method emitted one value.
+    """
+    d = prediction_diversity(pred)
+    if d["degenerate"] and method not in DEGENERATE_BY_DESIGN:
+        LOG.error(
+            "DEGENERATE: %s emitted %d unique prediction(s) on split %s over %d rows",
+            method, d["n_unique_predictions"], split, np.asarray(pred).size,
+        )
+        raise DegenerateBaselineError(
+            f"{method!r} is constant on split {split!r}: "
+            f"{d['n_unique_predictions']} unique value(s) over {np.asarray(pred).size} "
+            "rows. It has no ranking and must not be reported as a model."
+        )
+    return d
 
 
 def prepare(cfg: Config, rebuild: bool = False) -> ScenarioDataset:
@@ -293,7 +338,19 @@ def run_comparison(cfg: Config, rebuild: bool = False) -> dict[str, pd.DataFrame
 
     train_rows = rows_from_split(ds, "train")
     LOG.info("fitting baselines on %d training rows", train_rows.y.size)
+    # The trivial baselines cost one scalar each and are not optional: on a
+    # target that is 92.5% exact zeros, a table that does not show what
+    # predicting zero scores cannot be read.
+    const_zero = ConstantPredictor("zero").fit(train_rows.x, train_rows.y)
+    const_mean = ConstantPredictor("train_mean").fit(train_rows.x, train_rows.y)
+    LOG.info(
+        "trivial baselines: constant_zero = 0.0, constant_train_mean = %.6f "
+        "(train truth is %.2f%% exact zeros)",
+        const_mean.value,
+        100.0 * float((train_rows.y == 0.0).mean()),
+    )
     tab_gbt = TabularRiskModel("gbt", cfg.run.seed).fit(train_rows.x, train_rows.y)
+    tab_gbt_l1 = TabularRiskModel("gbt_l1", cfg.run.seed).fit(train_rows.x, train_rows.y)
     tab_ridge = TabularRiskModel("ridge", cfg.run.seed).fit(train_rows.x, train_rows.y)
     retrieval = ScenarioRetrieval(k=8).fit(train_rows.x, train_rows.y)
     heur_a, heur_b = _fit_heuristic_scale(_heuristic_rows(ds, "train"), train_rows.y)
@@ -330,11 +387,14 @@ def run_comparison(cfg: Config, rebuild: bool = False) -> dict[str, pd.DataFrame
             "surrogate_single": single.impact,
             "mlp_no_message_passing": mlp_pred.impact,
             "tabular_gbt": tab_gbt.predict(rows.x),
+            "tabular_gbt_l1": tab_gbt_l1.predict(rows.x),
             "tabular_ridge": tab_ridge.predict(rows.x),
             "retrieval_knn": retrieval.predict(rows.x),
             "topology_heuristic": np.clip(
                 heur_a * _heuristic_rows(ds, split) + heur_b, 0.0, None
             ),
+            "constant_zero": const_zero.predict(rows.x),
+            "constant_train_mean": const_mean.predict(rows.x),
         }
         preds_by_split[split] = preds
         truth = rows.y
@@ -342,6 +402,7 @@ def run_comparison(cfg: Config, rebuild: bool = False) -> dict[str, pd.DataFrame
         for name, p in preds.items():
             rec = {"split": split, "method": name}
             rec.update(FID.fidelity_report(p, truth, rows.scenario_id))
+            rec.update(_diversity_row(name, p, split))
             if name == "surrogate_ensemble":
                 rec.update(FID.trajectory_metrics(ens.traj, ens.traj_true))
                 rec.update(
@@ -443,6 +504,8 @@ def run_comparison(cfg: Config, rebuild: bool = False) -> dict[str, pd.DataFrame
         "params_surrogate": records[0]["params"],
         "params_mlp_no_mp": mlp_rec["params"],
         "tabular_gbt_tree_nodes": tab_gbt.n_params_,
+        "tabular_gbt_l1_tree_nodes": tab_gbt_l1.n_params_,
+        "constant_train_mean_value": const_mean.value,
         "retrieval_stored_floats": retrieval.memory_floats(),
         "splits": ds.counts(),
         "rows": ds.rows(),
@@ -467,6 +530,9 @@ def _pick(frame: pd.DataFrame, split: str, method: str, col: str) -> float:
 #: uncertainty story, because the noise scale differs enormously between them.
 SEED_METRICS = (
     "mae",
+    # The zero-inflation metric needs a noise scale like every other claim: a
+    # gain on `mae_nonzero_truth` is only reportable against the seed spread.
+    "mae_nonzero_truth",
     "rmse",
     "spearman_pooled",
     "spearman_within_scenario",
@@ -631,6 +697,10 @@ def run_criticality(cfg: Config) -> dict[str, pd.DataFrame]:
     sim = _sim_config(cfg)
     train_rows = rows_from_split(ds, "train")
     tab_gbt = TabularRiskModel("gbt", cfg.run.seed).fit(train_rows.x, train_rows.y)
+    # Kept in this sweep specifically so its single distinct score is visible in
+    # `criticality_ranking.csv`. It is the variant that used to be reported here
+    # as `tabular_gbt`, and its recall of ~0 said nothing about tabular features.
+    tab_gbt_l1 = TabularRiskModel("gbt_l1", cfg.run.seed).fit(train_rows.x, train_rows.y)
     tab_ridge = TabularRiskModel("ridge", cfg.run.seed).fit(train_rows.x, train_rows.y)
     models, _ = train_or_load_ensemble(cfg, ds, N_NODE_FEATURES, N_EDGE_FEATURES)
     heur = TopologyHeuristic()
@@ -682,6 +752,10 @@ def run_criticality(cfg: Config) -> dict[str, pd.DataFrame]:
         tab_seconds = time.perf_counter() - t0
 
         t0 = time.perf_counter()
+        gbt_l1_scores = tab_gbt_l1.predict(tab_x).reshape(cands.size, n_dem).sum(axis=1)
+        gbt_l1_seconds = time.perf_counter() - t0
+
+        t0 = time.perf_counter()
         ridge_scores = tab_ridge.predict(tab_x).reshape(cands.size, n_dem).sum(axis=1)
         ridge_seconds = time.perf_counter() - t0
 
@@ -693,12 +767,14 @@ def run_criticality(cfg: Config) -> dict[str, pd.DataFrame]:
         scores = {
             "surrogate": sur_scores,
             "tabular_gbt": tab_scores,
+            "tabular_gbt_l1": gbt_l1_scores,
             "tabular_ridge": ridge_scores,
             "topology_heuristic": heur_scores,
         }
         secs = {
             "surrogate": sur_seconds,
             "tabular_gbt": tab_seconds,
+            "tabular_gbt_l1": gbt_l1_seconds,
             "tabular_ridge": ridge_seconds,
             "topology_heuristic": heur_seconds,
         }
@@ -735,6 +811,7 @@ def run_criticality(cfg: Config) -> dict[str, pd.DataFrame]:
                     "truth": float(truth[i]),
                     "surrogate": float(sur_scores[i]),
                     "tabular_gbt": float(tab_scores[i]),
+                    "tabular_gbt_l1": float(gbt_l1_scores[i]),
                     "tabular_ridge": float(ridge_scores[i]),
                     "topology_heuristic": float(heur_scores[i]),
                     "sole_source_reach": float(ss_reach[c]),
@@ -742,6 +819,9 @@ def run_criticality(cfg: Config) -> dict[str, pd.DataFrame]:
                 }
             )
 
+        # The feature score here is the *working* GBT. Passing the degenerate L1
+        # variant produced ranks that were nothing but candidate node ids, and
+        # `find_disagreements` now refuses a constant score outright.
         for d in find_disagreements(net, cands, tab_scores, sur_scores, truth, top_k=10):
             disagree_rows.append({"network": net.name, **d.to_dict()})
 

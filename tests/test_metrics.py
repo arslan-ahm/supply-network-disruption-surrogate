@@ -40,6 +40,68 @@ def test_bias_sign_says_which_way_the_model_errs():
     assert FID.bias(np.array([0.0, 0.0]), np.array([1.0, 1.0])) == pytest.approx(-1.0)
 
 
+# --------------------------------------------------------------------------- #
+# MAE on nonzero truth — the metric a constant predictor cannot win
+# --------------------------------------------------------------------------- #
+
+
+def test_mae_nonzero_truth_restricts_to_biting_rows():
+    t = np.array([0.0, 0.0, 0.4, 0.6])
+    p = np.array([0.9, 0.9, 0.5, 0.5])
+    val, n = FID.mae_nonzero_truth(p, t)
+    assert n == 2
+    assert val == pytest.approx((0.1 + 0.1) / 2)
+
+
+def test_a_zero_predictor_scores_the_mean_nonzero_truth():
+    """The whole reason this metric exists: zero cannot win it."""
+    rng = np.random.default_rng(0)
+    t = np.zeros(1000)
+    idx = rng.choice(1000, 75, replace=False)
+    t[idx] = rng.uniform(0.05, 0.9, 75)
+    zero_pooled = FID.mae(np.zeros(1000), t)
+    zero_nz, n = FID.mae_nonzero_truth(np.zeros(1000), t)
+    assert n == 75
+    assert zero_nz == pytest.approx(t[idx].mean())
+    # Pooled MAE flatters the constant by the zero fraction; the restricted one
+    # does not. This factor is why the two must be reported side by side.
+    assert zero_nz > 10.0 * zero_pooled
+
+
+def test_a_zero_predictor_has_the_best_possible_pooled_mae_here():
+    """States the trap directly: on a 92.5%-zero target, zero wins MAE."""
+    rng = np.random.default_rng(1)
+    t = np.zeros(2000)
+    idx = rng.choice(2000, 150, replace=False)
+    t[idx] = rng.uniform(0.05, 0.9, 150)
+    zero = FID.mae(np.zeros(2000), t)
+    for c in (t.mean(), 0.05, 0.1, 0.5):
+        assert FID.mae(np.full(2000, c), t) >= zero
+
+
+def test_mae_nonzero_truth_is_nan_when_nothing_bit():
+    val, n = FID.mae_nonzero_truth(np.ones(5), np.zeros(5))
+    assert n == 0
+    assert np.isnan(val)
+
+
+def test_mae_nonzero_truth_ignores_non_finite_rows():
+    t = np.array([0.0, 0.5, np.nan, 0.5])
+    p = np.array([0.0, 0.4, 9.0, np.nan])
+    val, n = FID.mae_nonzero_truth(p, t)
+    assert n == 1
+    assert val == pytest.approx(0.1)
+
+
+def test_fidelity_report_carries_the_nonzero_columns():
+    t = np.array([0.0, 0.0, 0.0, 0.5])
+    p = np.array([0.0, 0.0, 0.0, 0.3])
+    rep = FID.fidelity_report(p, t)
+    assert rep["n_nonzero_truth"] == 1
+    assert rep["mae_nonzero_truth"] == pytest.approx(0.2)
+    assert rep["mae"] == pytest.approx(0.05)
+
+
 def test_metrics_ignore_non_finite_entries():
     p = np.array([1.0, np.nan, 3.0])
     t = np.array([1.0, 5.0, 4.0])

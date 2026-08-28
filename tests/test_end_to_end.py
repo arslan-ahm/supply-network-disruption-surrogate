@@ -12,7 +12,10 @@ them and still covers the seams.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
+import pandas as pd
 import pytest
 
 from sndsur.analysis.counterfactual import (
@@ -410,25 +413,202 @@ def test_comparison_pipeline_populates_every_table(tiny_cfg, tmp_path, monkeypat
         assert f.exists() and f.stat().st_size > 0, name
 
 
-@pytest.mark.slow
-def test_surrogate_beats_predicting_the_training_mean(tiny_cfg):
-    """A model that cannot beat a constant has learned nothing at all."""
+# --------------------------------------------------------------------------- #
+# Beating a constant
+#
+# "A model that cannot beat a constant has learned nothing" is the right
+# assertion, but on this target there are TWO constants and they are very far
+# apart. The training mean is the RMSE-optimal one; **zero** is the MAE-optimal
+# one, because the target is 92.5% exact zeros and the L1 minimiser is the
+# median. Testing only against the train mean is the easy half of the question,
+# so both are tested and the harder one is recorded as a known failure rather
+# than avoided. See docs/RESULTS.md §8.7.
+#
+# The original version of this test asserted the train-mean claim on the smoke
+# fixture, where `test_id` is 16 rows of exactly 0.0 — no model can beat a
+# constant on an all-constant target — so it had always failed. The claim is true
+# at real scale; the fixture below is enlarged and trained long enough for the
+# comparison to mean something, and the real-scale versions read the committed
+# per-item CSV directly.
+# --------------------------------------------------------------------------- #
+
+
+@pytest.fixture(scope="module")
+def trained_on_a_fixture_that_bites(tmp_path_factory):
+    """Train one model on a fixture whose evaluation splits are not all zero.
+
+    Deliberately larger than ``tiny_cfg``: at 16 scenarios per training network
+    the evaluation splits contain no nonzero rows at all, and a comparison
+    against a constant on an all-zero target is not a test of anything. This
+    config yields 576 training rows and 125 nonzero evaluation rows, and 16
+    epochs is enough for the model to clear the training-mean constant on every
+    evaluation split. Roughly 30 s in total on the reference machine.
+
+    Returns:
+        ``(pred, truth, train_mean)`` pooled over every evaluation split.
+    """
     import sndsur.pipelines as P
     from sndsur.data.features import N_EDGE_FEATURES, N_NODE_FEATURES
     from sndsur.engine.batching import iterate_batches
     from sndsur.engine.trainer import predict, train_surrogate
-    from sndsur.metrics.fidelity import mae
     from sndsur.models.baselines import rows_from_split
 
-    ds = P.prepare(tiny_cfg)
-    model, _ = train_surrogate(
-        tiny_cfg, ds, N_NODE_FEATURES, N_EDGE_FEATURES, log_every=0
+    cfg = load_config("configs/smoke.yaml")
+    cfg.dataset.cache_dir = str(tmp_path_factory.mktemp("bites"))
+    cfg.dataset.n_train_networks = 3
+    cfg.dataset.n_shift_networks = 2
+    cfg.dataset.n_large_networks = 1
+    cfg.dataset.scenarios_per_train_network = 64
+    cfg.dataset.scenarios_per_eval_network = 24
+    cfg.model.ensemble = 1
+    cfg.train.epochs = 16
+
+    ds = P.prepare(cfg)
+    model, _ = train_surrogate(cfg, ds, N_NODE_FEATURES, N_EDGE_FEATURES, log_every=0)
+    preds, truths = [], []
+    for split in ("test_id", *SHIFT_SPLITS):
+        if not ds.splits[split]:
+            continue
+        b = iterate_batches(ds.splits[split], ds, cfg.train.batch_graphs, False)
+        preds.append(predict(model, b, ds).impact)
+        truths.append(rows_from_split(ds, split).y)
+    return (
+        np.concatenate(preds),
+        np.concatenate(truths),
+        float(rows_from_split(ds, "train").y.mean()),
     )
-    b = iterate_batches(ds.splits["test_id"], ds, tiny_cfg.train.batch_graphs, False)
-    p = predict(model, b, ds)
-    rows = rows_from_split(ds, "test_id")
-    constant = np.full_like(rows.y, rows_from_split(ds, "train").y.mean())
-    assert mae(p.impact, rows.y) <= mae(constant, rows.y)
+
+
+@pytest.mark.slow
+def test_surrogate_beats_predicting_the_training_mean(trained_on_a_fixture_that_bites):
+    """A model that cannot beat a constant has learned nothing at all.
+
+    Asserted on a fixture whose evaluation rows actually contain nonzero targets,
+    because otherwise the constant and the truth are the same object.
+    """
+    from sndsur.metrics.fidelity import mae
+
+    pred, truth, train_mean = trained_on_a_fixture_that_bites
+    assert int((truth > 0).sum()) > 50, "fixture too small for this comparison"
+    constant = np.full_like(truth, train_mean)
+    assert mae(pred, truth) < mae(constant, truth)
+
+
+@pytest.mark.slow
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "The surrogate does NOT beat the all-zero constant on pooled MAE, and this "
+        "records that honestly rather than testing the easier constant only. The "
+        "target is 92.5% exact zeros, so zero is the MAE-optimal constant, and at "
+        "real scale the surrogate loses to it on 6 of 7 splits "
+        "(results/runs/base/per_item.csv). It wins on the metric a constant cannot "
+        "win: see test_surrogate_beats_the_all_zero_constant_where_disruptions_bit."
+    ),
+)
+def test_surrogate_beats_the_all_zero_constant_on_pooled_mae(
+    trained_on_a_fixture_that_bites,
+):
+    """The harder half of the question. Expected to fail; see the xfail reason."""
+    from sndsur.metrics.fidelity import mae
+
+    pred, truth, _ = trained_on_a_fixture_that_bites
+    assert mae(pred, truth) < mae(np.zeros_like(truth), truth)
+
+
+# --------------------------------------------------------------------------- #
+# The same two claims at real scale, against the committed evidence
+# --------------------------------------------------------------------------- #
+
+REAL_PER_ITEM = Path("results/runs/base/per_item.csv")
+
+
+def _real_per_item():
+    if not REAL_PER_ITEM.exists():
+        pytest.skip("results/runs/base/per_item.csv not present; run `make all`")
+    return pd.read_csv(REAL_PER_ITEM)
+
+
+def test_the_shipped_target_really_is_overwhelmingly_zero():
+    """The premise every claim below rests on, asserted rather than asserted-in-prose."""
+    df = _real_per_item()
+    frac = float((df.truth == 0.0).mean())
+    assert 0.92 < frac < 0.93, frac
+    assert float(np.median(df.truth)) == 0.0
+
+
+def test_surrogate_beats_the_training_mean_constant_at_real_scale():
+    """The claim the smoke fixture was too small to support, on the real run."""
+    df = _real_per_item()
+    train_mean = float(df.loc[df.split == "train", "truth"].mean())
+    for split, d in df.groupby("split"):
+        sur = float(np.abs(d.truth - d.pred_surrogate_single).mean())
+        const = float(np.abs(d.truth - train_mean).mean())
+        assert sur < const, f"{split}: surrogate {sur:.6f} vs train-mean {const:.6f}"
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "Known failure, recorded on purpose. The surrogate is beaten on pooled MAE "
+        "by the constant zero function on 6 of the 7 splits in "
+        "results/runs/base/per_item.csv; it wins only on shift_multi. Pooled MAE on "
+        "a 92.5%-zero target is minimised by predicting zero, so this is the "
+        "metric's property as much as the model's — which is exactly why the "
+        "retraction in docs/RESULTS.md §5 and §8.7 is stated in these terms."
+    ),
+)
+def test_surrogate_beats_the_all_zero_constant_at_real_scale():
+    df = _real_per_item()
+    for split, d in df.groupby("split"):
+        sur = float(np.abs(d.truth - d.pred_surrogate_single).mean())
+        zero = float(np.abs(d.truth).mean())
+        assert sur < zero, f"{split}: surrogate {sur:.6f} vs all-zero {zero:.6f}"
+
+
+def test_the_all_zero_constant_wins_pooled_mae_on_six_of_seven_splits():
+    """The positive statement of the xfail above, so the count is pinned to a number."""
+    df = _real_per_item()
+    lost = [
+        s
+        for s, d in df.groupby("split")
+        if float(np.abs(d.truth - d.pred_surrogate_single).mean())
+        > float(np.abs(d.truth).mean())
+    ]
+    assert len(lost) == 6, lost
+    assert "shift_multi" not in lost
+
+
+def test_surrogate_beats_the_all_zero_constant_where_disruptions_bit():
+    """The metric a constant cannot win, and the surrogate wins it on all seven.
+
+    Restricted to rows where the truth is nonzero, the all-zero constant scores
+    the mean nonzero truth — the worst error available — and the surrogate is
+    below it everywhere. Reported next to the pooled result, never instead of it.
+    """
+    df = _real_per_item()
+    for split, d in df.groupby("split"):
+        nz = d[d.truth > 0]
+        assert len(nz) > 50, f"{split} has too few biting rows"
+        sur = float(np.abs(nz.truth - nz.pred_surrogate_single).mean())
+        zero = float(nz.truth.mean())
+        assert sur < zero, f"{split}: surrogate {sur:.6f} vs all-zero {zero:.6f}"
+
+
+def test_the_shipped_gbt_is_no_longer_the_constant_zero_function():
+    """Regression test for the bug this whole change is about.
+
+    Before the fix, ``pred_tabular_gbt`` was exactly 0.000000 for all 20,624 rows
+    and its MAE matched the all-zero constant on every split to six decimals.
+    """
+    df = _real_per_item()
+    from sndsur.models.baselines import prediction_diversity
+
+    assert prediction_diversity(df.pred_tabular_gbt)["n_unique_predictions"] > 100
+    for split, d in df.groupby("split"):
+        gbt = float(np.abs(d.truth - d.pred_tabular_gbt).mean())
+        zero = float(np.abs(d.truth).mean())
+        assert abs(gbt - zero) > 1e-6, f"{split}: GBT still equals the zero constant"
 
 
 @pytest.mark.slow
