@@ -9,7 +9,7 @@
       "epochs_run": 8,
       "seed": 0,
       "member": 0,
-      "cached": false
+      "cached": true
     },
     {
       "best_epoch": 7,
@@ -19,7 +19,7 @@
       "epochs_run": 8,
       "seed": 1000,
       "member": 1,
-      "cached": false
+      "cached": true
     },
     {
       "best_epoch": 7,
@@ -29,13 +29,13 @@
       "epochs_run": 8,
       "seed": 2000,
       "member": 2,
-      "cached": false
+      "cached": true
     }
   ],
   "mlp_no_message_passing": {
     "best_epoch": 7,
     "best_val_loss": -1.0473315914471943,
-    "train_seconds": 52.053443200013135,
+    "train_seconds": 917.8459281999967,
     "params": 57160,
     "epochs_run": 8,
     "seed": 0
