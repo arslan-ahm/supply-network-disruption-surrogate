@@ -289,7 +289,17 @@ def section_verdicts() -> None:
             # A constant is not eligible to be the "best baseline": calling the
             # all-zero function the strongest baseline would be true on MAE and
             # completely uninformative. It gets its own explicit rows instead.
-            ranked = {k: v for k, v in others.items() if not k.startswith("constant_")}
+            # Eligibility is decided by the unique-prediction census in the CSV,
+            # not by the method's name — `tabular_gbt_l1` is a constant too, and
+            # a name-based filter let it be reported as the strongest baseline.
+            constant = set()
+            if "n_unique_predictions" in sub.columns:
+                constant = {
+                    str(b) for b in sub.index
+                    if float(sub.loc[b, "n_unique_predictions"]) < 2
+                }
+            constant |= {b for b in others if str(b).startswith("constant_")}
+            ranked = {k: v for k, v in others.items() if k not in constant}
             best = (min if better_is_lower else max)(ranked or others, key=others.get)
             for label, ref_name in (("vs reference", "tabular_gbt"),
                                     ("vs best baseline", best),
@@ -320,15 +330,34 @@ def section_stats() -> None:
     print("Unit of analysis is a **row**, so this compares two sets of weights, "
           "not two methods.\n")
     sub = s[s.split == "test_id"]
-    print(md_table(
-        sub,
-        ["name_a", "mean_a", "mean_b", "difference", "ci_lower", "ci_upper",
-         "p_adjusted", "effect_size", "n"],
-        ["method (abs error)", "mean", "ref mean", "delta", "CI low", "CI high",
-         "p (Holm)", "Cohen's d", "n"],
-        nd=5,
-    ))
+    spec = [
+        ("name_a", "method (abs error)"),
+        ("mean_a", "mean"),
+        ("mean_b", "ref mean"),
+        ("difference", "delta"),
+        ("ci_lower", "CI low"),
+        ("ci_upper", "CI high"),
+        ("p_adjusted", "p (Holm)"),
+        ("effect_size", "Cohen's d"),
+        ("median_difference", "median delta"),
+        ("frac_rows_a_worse", "rows worse"),
+        ("n", "n"),
+    ]
+    spec = [(c, h) for c, h in spec if c in sub.columns]
+    print(md_table(sub, [c for c, _ in spec], [h for _, h in spec], nd=5))
     print()
+    if "frac_rows_a_worse" in sub.columns:
+        print("`median delta` and `rows worse` are there because the Wilcoxon "
+              "p-value counts rows while the bootstrap interval weighs them, and "
+              "on this target the two point in **opposite directions**. "
+              "`constant_zero` is worse than the reference on the mean "
+              "(+0.00183) but worse on only **4.5% of rows**, with a median "
+              "paired difference of exactly 0: predicting zero is exactly right "
+              "on 92.5% of rows and wrong only on the few that matter. The "
+              "surrogate, by contrast, is worse on 82.3% of rows. A paired sign "
+              "test on absolute errors is therefore one more thing a constant "
+              "can win on this target, and it is reported with its direction "
+              "rather than as a bare asterisk.\n")
 
 
 def section_ablation() -> None:
