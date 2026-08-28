@@ -1,6 +1,17 @@
 """Baselines, all of them actually run.
 
-Four, each answering a different objection:
+Six, each answering a different objection:
+
+``ConstantPredictor``
+    The two trivial baselines: predict exactly ``0.0`` everywhere, or predict the
+    training mean everywhere. They cost nothing to fit and they exist because the
+    target is **92.5% exact zeros at the row level**, and on a distribution like
+    that the number a results table most needs is what predicting nothing scores.
+    Leaving them out is how a degenerate model gets mistaken for a good one: the
+    L1-optimal constant on this target *is* zero, so any method whose MAE matches
+    ``constant_zero`` to six decimal places has learned nothing, and without the
+    column there is no way for a reader to notice. See ``docs/RESULTS.md`` §8.7 —
+    this repository shipped exactly that mistake.
 
 ``TabularRiskModel``
     The reference approach. Gradient-boosted trees (and, as a second variant,
@@ -11,6 +22,17 @@ Four, each answering a different objection:
     same order, and generous features — including three graph-derived columns it
     would not normally have — so that its failure, where it fails, is about the
     missing *relation* and not about missing information.
+
+    Two loss variants are kept, and the second is kept *because* it fails.
+    ``kind="gbt"`` uses squared error and is the working reference model.
+    ``kind="gbt_l1"`` uses absolute error and is **degenerate by construction on
+    this target**: the L1-optimal constant is the median, the median is 0, so the
+    boosting initialisation is 0, every leaf's L1-optimal value is 0, early
+    stopping fires within ~10 rounds and the model emits a single unique
+    prediction. It is reported with that label rather than deleted, because a
+    reference model that collapses under a plausible-sounding tuning choice is
+    informative, and because dropping it would hide the bug that made it the
+    repository's accidental headline baseline.
 
 ``TopologyHeuristic``
     No learning at all: a hand-weighted composite of the topology signals a
@@ -26,11 +48,17 @@ Four, each answering a different objection:
     baseline in-distribution because the training set contains many near-duplicate
     scenarios. Its behaviour under topology shift is the interesting part.
 
-The fourth — an MLP with the surrogate's own features but no message passing — is
-not here: it is the surrogate with ``model.layers=0``, so it shares the training
-loop, the loss, the heads and the parameter budget with the full model. Running it
-as a separate implementation would have made it a different model in more ways
-than the one being tested.
+The remaining one — an MLP with the surrogate's own features but no message
+passing — is not here: it is the surrogate with ``model.layers=0``, so it shares
+the training loop, the loss, the heads and the parameter budget with the full
+model. Running it as a separate implementation would have made it a different
+model in more ways than the one being tested.
+
+Every method that enters a comparison table goes through
+:func:`prediction_diversity`, and every method not declared constant *by design*
+goes through :func:`require_non_degenerate`. A predictor with fewer than two
+unique values is not a model, and it must not be allowed into a results table
+looking like one.
 """
 
 from __future__ import annotations
@@ -89,19 +117,146 @@ def rows_from_split(ds, split: str) -> RowData:
     )
 
 
+class DegenerateBaselineError(RuntimeError):
+    """A method's predictions carry no ordering information.
+
+    Raised for a predictor whose output has fewer than two distinct values when
+    that was not the declared intent. This exists because the repository shipped
+    a comparison table in which the best-MAE "model" was a constant, and no
+    metric in the table revealed it: MAE is minimised by predicting zero on a
+    92.5%-zero target, rank correlations came out as ``NaN`` and were rendered
+    as ``not measured``, and top-1 agreement scored 0.125 purely from
+    ``argmax`` returning index 0 on an all-tied row. The only reliable detector
+    is counting unique predictions, so that is now counted for every method.
+    """
+
+
+def prediction_diversity(pred: np.ndarray, decimals: int = 12) -> dict[str, float]:
+    """How many distinct values a predictor actually emitted.
+
+    Args:
+        pred: Predictions for one split.
+        decimals: Rounding applied before counting, so float noise at the 1e-15
+            level is not mistaken for genuine variation.
+
+    Returns:
+        ``{"n_unique_predictions", "pred_range", "degenerate"}``. ``degenerate``
+        is true when fewer than two distinct values were emitted — i.e. the
+        predictor is a constant function and has no ranking at all.
+    """
+    v = np.asarray(pred, dtype=np.float64).ravel()
+    finite = v[np.isfinite(v)]
+    n_unique = int(np.unique(np.round(finite, decimals)).size)
+    return {
+        "n_unique_predictions": n_unique,
+        "pred_range": float(np.ptp(finite)) if finite.size else float("nan"),
+        "degenerate": bool(n_unique < 2),
+    }
+
+
+def require_non_degenerate(
+    name: str, pred: np.ndarray, decimals: int = 12
+) -> dict[str, float]:
+    """:func:`prediction_diversity`, but a constant predictor is an error.
+
+    Args:
+        name: Method name, for the message.
+        pred: Predictions for one split.
+        decimals: Passed through.
+
+    Returns:
+        The diversity record, for recording alongside the method's metrics.
+
+    Raises:
+        DegenerateBaselineError: if fewer than two distinct values were emitted.
+    """
+    d = prediction_diversity(pred, decimals)
+    if d["degenerate"]:
+        raise DegenerateBaselineError(
+            f"{name!r} emitted {d['n_unique_predictions']} unique prediction(s) over "
+            f"{np.asarray(pred).size} rows: it is a constant function, not a model. "
+            "Either fix it or declare it constant by design so the table says so."
+        )
+    return d
+
+
+class ConstantPredictor:
+    """The trivial baselines: predict zero, or predict the training mean.
+
+    Not padding. On a target that is 92.5% exact zeros these are the two numbers
+    a reader needs in order to interpret any error metric in the table at all:
+
+    * ``kind="zero"`` is the **MAE-optimal constant** here, because the L1
+      minimiser is the median and the median of this target is exactly 0. Any
+      method that does not beat it on MAE has not demonstrated magnitude
+      fidelity, and any method that *matches* it to six decimal places has
+      collapsed to it.
+    * ``kind="train_mean"`` is the **RMSE-optimal constant**, and it is the
+      weaker of the two on MAE by roughly a factor of two on every split here.
+      Reporting only the train-mean constant — the conventional choice — would
+      have flattered every learned method in this repository.
+
+    There is nothing to fit but one scalar, so these cost no compute and there is
+    no excuse for their absence from a results table.
+    """
+
+    #: Both are constants by design; the degeneracy guard must not raise on them.
+    KINDS = ("zero", "train_mean")
+
+    def __init__(self, kind: str = "zero") -> None:
+        if kind not in self.KINDS:
+            raise ValueError(f"unknown constant kind {kind!r}")
+        self.kind = kind
+        self.value: float | None = None
+
+    @property
+    def degenerate_by_construction(self) -> bool:
+        """Always true. That is the entire point of this class."""
+        return True
+
+    def fit(self, x: np.ndarray, y: np.ndarray) -> ConstantPredictor:
+        del x
+        t = np.asarray(y, dtype=np.float64)
+        t = t[np.isfinite(t)]
+        if self.kind == "zero":
+            self.value = 0.0
+        else:
+            self.value = float(t.mean()) if t.size else 0.0
+        return self
+
+    def predict(self, x: np.ndarray) -> np.ndarray:
+        if self.value is None:
+            raise RuntimeError("model used before fit")
+        n = int(np.asarray(x).shape[0])
+        return np.full(n, self.value, dtype=np.float64)
+
+
 class TabularRiskModel:
     """Reference-style per-row regressor.
 
     Args:
-        kind: ``"gbt"`` for histogram gradient boosting, ``"ridge"`` for a linear
-            model. Both are run: the linear one shows what the features alone
-            support, and the boosted one shows what a strong tabular learner
-            extracts from them, so a weak result cannot be blamed on model choice.
+        kind: ``"gbt"`` for histogram gradient boosting under squared error,
+            ``"gbt_l1"`` for the same trees under absolute error (degenerate on
+            this target — see :attr:`DEGENERATE_KINDS`), ``"ridge"`` for a linear
+            model. All three are run: the linear one shows what the features
+            alone support, the boosted one shows what a strong tabular learner
+            extracts from them so a weak result cannot be blamed on model
+            choice, and the L1 one shows what happens when the objective is
+            chosen to match the surrogate's without checking the target's
+            distribution.
         seed: RNG seed.
         max_iter: Boosting rounds. Capped so this baseline's training time stays
             in the same order of magnitude as the surrogate's — a baseline given
             ten times the compute is not a fair comparison in either direction.
     """
+
+    #: Boosting loss per ``kind``. ``gbt_l1`` exists to be shown failing; see
+    #: :attr:`DEGENERATE_KINDS` and the module docstring.
+    GBT_LOSS = {"gbt": "squared_error", "gbt_l1": "absolute_error"}
+
+    #: Kinds that cannot fit this target and are reported as degenerate rather
+    #: than treated as models.
+    DEGENERATE_KINDS = frozenset({"gbt_l1"})
 
     def __init__(self, kind: str = "gbt", seed: int = 0, max_iter: int = 300) -> None:
         self.kind = kind
@@ -110,8 +265,13 @@ class TabularRiskModel:
         self.model = None
         self.n_params_ = 0
 
+    @property
+    def degenerate_by_construction(self) -> bool:
+        """True for the L1 variant, whose collapse on this target is analytic."""
+        return self.kind in self.DEGENERATE_KINDS
+
     def fit(self, x: np.ndarray, y: np.ndarray) -> TabularRiskModel:
-        if self.kind == "gbt":
+        if self.kind in self.GBT_LOSS:
             from sklearn.ensemble import HistGradientBoostingRegressor
 
             self.model = HistGradientBoostingRegressor(
@@ -123,11 +283,24 @@ class TabularRiskModel:
                 early_stopping=True,
                 validation_fraction=0.1,
                 random_state=self.seed,
-                # Absolute error, to match the surrogate's L1 objective. With the
-                # default squared loss this baseline optimised a different thing
-                # from the model it is compared against, which is a comparison
-                # about loss functions rather than about representations.
-                loss="absolute_error",
+                # Squared error, which is what a boosted-tree regressor on this
+                # target has to use to be a model at all.
+                #
+                # The original choice here was `absolute_error`, justified as
+                # "matching the surrogate's L1 objective". That reasoning is
+                # wrong on a target that is 92.5% exact zeros: L1's optimal
+                # constant is the median, the median is 0, the boosting
+                # initialisation is therefore 0, and every leaf's L1-optimal
+                # value is 0 as well. The result was a model that emitted
+                # 0.000000 for all 20,624 rows of the shipped comparison,
+                # scored the best MAE in the table because the all-zero
+                # constant is MAE-optimal here, and was then written up in the
+                # README as a "reference GBT" the surrogate lost to. It was the
+                # constant zero function wearing a boosted-tree costume.
+                #
+                # `kind="gbt_l1"` keeps that variant reachable and labelled, so
+                # the failure is documented instead of quietly deleted.
+                loss=self.GBT_LOSS[self.kind],
             )
         elif self.kind == "ridge":
             from sklearn.linear_model import Ridge

@@ -7,6 +7,17 @@ reader of this repository needs to hold onto.
 surrogate reproduces *how much* service is lost. It is what you need if the
 surrogate's output goes into a cost calculation.
 
+**MAE on this target is a trap, and the trap has already been fallen into.**
+The row-level target is 92.5% exact zeros, so the L1-optimal constant is the
+median, which is 0 — a predictor that emits nothing but zeros has the best MAE
+available and no information at all. This module therefore also reports
+:func:`mae_nonzero_truth`, the same error restricted to rows where a disruption
+actually bit. A constant-zero predictor scores exactly the mean nonzero truth
+there (0.193 on the shipped dataset), which is the worst score any method in
+this repository records, so that metric cannot be won by predicting nothing.
+Which metrics a constant can and cannot win is spelled out in
+``docs/RESULTS.md`` §0.
+
 **Rank fidelity** (Spearman, Kendall, top-k agreement) says whether it reproduces
 the *ordering*. It is what you need for screening, which is the use case this
 project actually argues for: a planner asks "which link should I look at first",
@@ -47,6 +58,42 @@ def rmse(pred: np.ndarray, true: np.ndarray) -> float:
     """Root mean squared error over rows where both are finite."""
     p, t = _finite_pair(pred, true)
     return float(np.sqrt(((p - t) ** 2).mean())) if p.size else float("nan")
+
+
+def mae_nonzero_truth(
+    pred: np.ndarray, true: np.ndarray, threshold: float = 0.0
+) -> tuple[float, int]:
+    """MAE restricted to rows where the disruption actually bit.
+
+    The companion to :func:`mae` on a zero-inflated target, and the reason it
+    exists: pooled MAE here is minimised by the constant 0, so it rewards a
+    predictor for refusing to predict. Conditioning on ``true > threshold``
+    removes that reward — a constant-zero predictor scores exactly the mean
+    nonzero truth, which is the largest error any method can post — while a
+    method that gets magnitudes roughly right scores well below it.
+
+    This is *not* a fair standalone metric either: it ignores false positives
+    entirely, so a predictor that shouts a large number on every row wins it.
+    It is reported next to pooled MAE and the rank metrics, never alone. A
+    method has magnitude fidelity only if it beats ``constant_zero`` on **both**
+    columns.
+
+    Args:
+        pred: Predictions.
+        true: Ground truth.
+        threshold: Rows with ``true > threshold`` are kept. Exact zero by
+            default, because the zeros here are exact rather than small.
+
+    Returns:
+        ``(mae, n_rows_contributing)``. The count is returned because a mean
+        over 116 of 1,536 rows is a different claim from a mean over all of
+        them, and NaN is returned rather than 0.0 when nothing contributes.
+    """
+    p, t = _finite_pair(pred, true)
+    m = t > threshold
+    if not m.any():
+        return (float("nan"), 0)
+    return (float(np.abs(p[m] - t[m]).mean()), int(m.sum()))
 
 
 def bias(pred: np.ndarray, true: np.ndarray) -> float:
@@ -217,8 +264,11 @@ def fidelity_report(
     prefix: str = "",
 ) -> dict[str, float]:
     """Every scalar fidelity metric for one set of impact predictions."""
+    nz_mae, nz_n = mae_nonzero_truth(pred, true)
     out = {
         f"{prefix}mae": mae(pred, true),
+        f"{prefix}mae_nonzero_truth": nz_mae,
+        f"{prefix}n_nonzero_truth": nz_n,
         f"{prefix}rmse": rmse(pred, true),
         f"{prefix}bias": bias(pred, true),
         f"{prefix}r2": r2(pred, true),

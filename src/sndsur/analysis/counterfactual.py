@@ -36,6 +36,7 @@ from sndsur.data.disruptions import Disruption, DisruptionSet
 from sndsur.data.features import edge_features, node_features, tabular_row_features
 from sndsur.data.network import N_TIERS, SupplyNetwork
 from sndsur.data.scenarios import NetworkBundle, Scenario
+from sndsur.models.baselines import require_non_degenerate
 from sndsur.sim.simulator import (
     SimConfig,
     counterfactual,
@@ -286,7 +287,21 @@ def find_disagreements(
     The simulator's ``truth`` decides the winner. This is the part that a purely
     observational study cannot do: there is no arguing about which ranking was
     right, because the counterfactual was actually run.
+
+    Both score vectors must actually rank. A constant score has no ordering, and
+    ``np.argsort`` of a constant returns index order, so a constant "feature
+    score" silently produces ranks that are nothing but candidate-node ids. This
+    repository shipped 36 adjudicated disagreements produced exactly that way —
+    in every one of them ``rank_a_feature == node_a + 1`` — which made the
+    headline experiment an adjudication of node numbering rather than of a
+    ranking. Hence the check.
+
+    Raises:
+        DegenerateBaselineError: if either score vector is constant.
     """
+    for label, sc in (("feature_scores", feature_scores), ("counterfactual_scores",
+                                                           counterfactual_scores)):
+        require_non_degenerate(f"find_disagreements:{label}", sc)
     f_order = np.argsort(-np.asarray(feature_scores, dtype=np.float64), kind="stable")
     c_order = np.argsort(-np.asarray(counterfactual_scores, dtype=np.float64), kind="stable")
     f_rank = np.empty(candidates.size, dtype=np.int64)
