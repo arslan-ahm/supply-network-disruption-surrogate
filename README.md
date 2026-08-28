@@ -16,6 +16,14 @@ and how long until recovery* — and, because the simulator gives the true answe
 for every candidate, adjudicates the two approaches against ground truth instead
 of against a proxy.
 
+**Efficiency axis: per-scenario evaluation cost.** One disruption scenario costs
+**50.33 ms** in the simulator against **4.41 ms** batched through the surrogate — a
+measured **11.41×** (`results/tables/efficiency.csv`, warm-up 8, 25 repeats, median
+and IQR). **What that costs:** the saving only repays the training and
+dataset-generation budget after **13,270 scenarios** (**26,167** if the ensemble is
+charged), so at any realistic sweep size the simulator is simply the better tool.
+The speed factor is real; the fixed-compute experiment is one the surrogate loses.
+
 > **Result, up front — and the flattering half is not the whole story.**
 >
 > **The argument holds, decisively.** Across six unseen networks there are 36
