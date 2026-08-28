@@ -69,6 +69,11 @@ make all
 
 which runs, in order:
 
+Stages that were **not** re-run for the baseline correction in
+`docs/RESULTS.md` §8.7, and why: `ablate` (every ablation compares the surrogate
+against itself, so no tabular model enters it) and `efficiency` (wall-clock and
+setup cost only). See §8.9 of that document.
+
 | stage | command | what it writes |
 |---|---|---|
 | data | `python scripts/build_dataset.py --config configs/base.yaml` | `results/tables/dataset.csv`, `data/scenarios/*.pkl` |
@@ -166,12 +171,53 @@ checkpoint cache be trusted: reusing a cached ensemble is equivalent to retraini
 it, so the criticality and efficiency stages measure the same weights the method
 comparison evaluated.
 
-### What is *not* deterministic across machines
+### What is *not* deterministic — measured, and narrower than previously claimed
 
-Wall-clock timings, obviously. Also, `torch` CPU reductions can differ in the last
-bits across BLAS builds, so the exact-zero determinism check is a within-machine
-guarantee. The dataset, being pure NumPy and Python arithmetic, is reproducible
-across machines.
+Wall-clock timings, obviously. But the exact-zero determinism check is a
+**within-process** guarantee, not a within-machine one. This document previously
+said within-machine; that was too strong, and `docs/RESULTS.md` §8.8 has the
+measurements. Re-running `compare` at the same seed on the same machine reproduces
+the *training trace* exactly (`epoch 5 loss -1.26929 val -1.38481`,
+`best_val_loss -1.49757`) but not the per-row predictions:
+
+| quantity | max abs difference across two launches |
+|---|---|
+| simulator truth | **0.0** |
+| `topology_heuristic` | **0.0** |
+| `mlp_no_message_passing` (`layers = 0`, retrained) | **0.0** |
+| `surrogate_single` | 4.1e-06 |
+| `surrogate_ensemble` | 9.4e-04 |
+| `tabular_ridge` | 2.2e-04 |
+| `retrieval_knn` | 1.0e-02 |
+
+Pure NumPy and Python arithmetic is exact, so the dataset and the topology
+heuristic reproduce bit-for-bit across machines. What drifts is anything whose
+reduction order depends on a thread pool: the surrogate's parallel `index_add_`
+scatter, the ridge solve, and the BLAS matmul behind kNN's distances (whose
+`argpartition` then breaks near-ties differently, which is why it drifts most).
+
+**This is not a footnote for one result.** The surrogate's criticality score spread
+is 0.0008, smaller than the 1.3e-03 drift in those same scores, so its recall@10
+moved from 0.433 to 0.450 between two launches with identical weights and a
+bit-identical oracle. See `docs/RESULTS.md` §8.8.
+
+### The launch environment is part of the seed
+
+**Do not export `OMP_NUM_THREADS` before launching a stage.** `limit_threads` sets
+it with `os.environ.setdefault` and runs *after* NumPy has bound its BLAS, so
+exporting it beforehand actually changes the BLAS thread count. Doing so diverges
+the training trace by the fourth decimal by epoch 5 (`-1.26665` against
+`-1.26929`). Every committed number comes from a launch with `OMP_NUM_THREADS`,
+`MKL_NUM_THREADS` and `OPENBLAS_NUM_THREADS` **unset**; torch is still capped to
+`run.threads` in-process, which is where the time goes. Reproduce with:
+
+```bash
+# correct
+python scripts/compare_methods.py --config configs/base.yaml
+
+# NOT this - it changes BLAS reduction order and the trace drifts
+OMP_NUM_THREADS=2 python scripts/compare_methods.py --config configs/base.yaml
+```
 
 ---
 
