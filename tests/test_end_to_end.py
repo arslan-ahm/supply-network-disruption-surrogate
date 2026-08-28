@@ -749,11 +749,14 @@ def test_different_seeds_give_different_models(tiny_cfg):
 def test_surrogate_predictions_are_not_degenerate(tiny_cfg):
     """A constant predictor passes almost every other test in this file.
 
-    On a target that is ~94% exact zeros, the constant minimising absolute error
-    is 0, and a model that collapses to it scores a fine MAE while being useless
-    for the only thing the surrogate is for: ordering candidates. The boosted-tree
-    reference model does exactly this on the criticality probes, so this is not a
-    hypothetical failure mode - it is the observed behaviour of a real baseline.
+    On a target that is 92.5% exact zeros the constant minimising absolute error
+    is 0, and a model that collapses to it scores the *best* MAE in the table while
+    being useless for the only thing the surrogate is for: ordering candidates.
+    This is not a hypothetical failure mode. The boosted-tree reference model in
+    this repository did exactly this, under an `absolute_error` loss chosen to
+    "match the surrogate's objective", and shipped as the best-MAE baseline for 43
+    commits: see docs/RESULTS.md 8.7 and the module-level guard
+    `sndsur.models.baselines.require_non_degenerate`.
     """
     import sndsur.pipelines as P
     from sndsur.data.features import N_EDGE_FEATURES, N_NODE_FEATURES

@@ -224,9 +224,17 @@ def notebook_02() -> nbf.NotebookNode:
         ),
         md(
             "## Magnitude error and rank fidelity are different questions\n\n"
-            "The target is 94% exact zeros, so a model that predicts near-zero everywhere\n"
-            "gets a good MAE and is useless for screening. Rank fidelity is the metric that\n"
-            "matters for the actual task, and the two columns below can disagree sharply.",
+            "The target is **92.48% exact zeros**, so the MAE-optimal predictor is the\n"
+            "constant **0** — and a model that collapses to it posts the best MAE in the\n"
+            "table while being useless for screening. That is not hypothetical: this\n"
+            "repository shipped it for 43 commits. `constant_zero` and\n"
+            "`constant_train_mean` are therefore run as first-class methods, and\n"
+            "`tabular_gbt_l1` — the same trees under `absolute_error` — is numerically\n"
+            "identical to `constant_zero` on every metric on every split. See\n"
+            "`docs/RESULTS.md` §8.7.\n\n"
+            "Rank fidelity is the metric that matters for the actual task, and a constant\n"
+            "cannot win it at all (its Spearman is undefined). The two columns below can\n"
+            "disagree sharply.",
             "n2-md-two",
         ),
         code(
