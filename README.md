@@ -5,6 +5,10 @@
 
 # Counterfactual Impact, Not a Risk Score
 
+<!-- links:begin -->
+**[Live results and figures](https://supply-surrogate-arslan.surge.sh)** &nbsp;·&nbsp; **[Source](https://github.com/arslan-ahm/supply-network-disruption-surrogate)** &nbsp;·&nbsp; [All seven projects](https://seven-ai-projects-arslan.surge.sh)
+<!-- links:end -->
+
 **A learned temporal graph surrogate for a multi-echelon supply-network
 simulator — validated against that simulator as an exact oracle.**
 
