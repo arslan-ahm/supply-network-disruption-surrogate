@@ -6,7 +6,9 @@
 # Counterfactual Impact, Not a Risk Score
 
 <!-- links:begin -->
-**[Live results and figures](https://supply-surrogate-arslan.surge.sh)** &nbsp;·&nbsp; **[Source](https://github.com/arslan-ahm/supply-network-disruption-surrogate)** &nbsp;·&nbsp; [All seven projects](https://seven-ai-projects-arslan.surge.sh)
+**[▶ Try the live demo](https://huggingface.co/spaces/ARslan-Ahamd/supply-network-disruption-surrogate)** &nbsp;·&nbsp; **[Full results](https://supply-surrogate-arslan.surge.sh)** &nbsp;·&nbsp; [All seven projects](https://seven-ai-projects-arslan.surge.sh)
+
+<sub>The demo runs this repository's own code in your browser via Pyodide — no server, nothing uploaded.</sub>
 <!-- links:end -->
 
 > **A learned temporal graph surrogate for a multi-echelon supply-network
